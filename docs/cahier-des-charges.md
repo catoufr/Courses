@@ -50,6 +50,7 @@ Usage personnel et familial, gratuit, sans compte obligatoire.
 - Fin de courses : clôture de la liste → crée un historique d'achat (date, magasin).
 
 ### V3 — Tickets et prix
+(Import du ticket vers le catalogue : livré en avance, voir l'état des lieux. Restent : conservation de l'image, historique des prix, comparaisons, tendances.)
 - Photo ou import d'image du ticket, conservée dans l'appli.
 - Bouton « Copier les consignes » + « Envoyer la photo » (Gemini / Claude) → l'IA renvoie un JSON.
 - Bouton « Coller le JSON » → import dans une table de vérification : désignation, prix unitaire, quantité, total ligne, avantage carte / remise, rayon éventuel.

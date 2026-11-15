@@ -14,6 +14,13 @@ Mis à jour : 15/11/2026
   - « Terminer les courses » : archive les articles pris dans l'historique
   - suggestions : produits achetés au moins 2 fois, pas encore sur la liste
   - export / import JSON, mode hors ligne, installable (PWA)
+- Import des tickets de caisse (partie de la V3 livrée en avance), onglet « Tickets » :
+  - photo ou image, consignes à copier pour Gemini / Claude, bouton d'envoi de la photo
+  - collage du JSON, table de vérification (nom, rayon, quantité, prix, remise) avec contrôle de la somme par rapport au total du ticket
+  - création automatique des produits du catalogue, rayon proposé par l'IA
+  - mémorisation « libellé du ticket → produit » par magasin
+  - prix et magasin enregistrés (dernier prix affiché dans le catalogue), achats ajoutés à l'historique donc aux suggestions
+  - liste des tickets importés, suppression possible
 
 ## En cours
 - Test de l'appli sur le téléphone (mise en ligne GitHub Pages à faire).
@@ -22,11 +29,12 @@ Mis à jour : 15/11/2026
 - V1 (suite) : partage en temps réel (Firebase) — créer le projet gratuit, brancher la synchronisation dans save().
 - Mettre en ligne sur GitHub Pages et tester l'installation sur le téléphone.
 - V2 : mode « En courses » dédié.
-- V3 : tickets, import JSON, historique et comparaison des prix.
+- V3 (reste) : conservation de l'image du ticket (garantie), historique des prix, comparaison entre magasins, tendances, familles de produits similaires.
 - V4 : plan du magasin.
 - Tester une vraie photo de ticket avec Gemini et Claude pour fixer le format JSON.
 
 ## Limites connues de la V1
 - Les données sont dans le navigateur de chaque téléphone : sans la synchronisation, les listes ne sont pas partagées.
-- L'historique ne garde pas encore le supermarché ni les prix (arrivent avec la V3).
+- Les images de tickets ne sont pas conservées : la photo sert seulement à l'envoi à l'IA (archivage prévu ensuite).
+- Le format JSON des consignes est à valider avec une vraie photo de ticket.
 - Pas encore testée sur un vrai téléphone : seule la logique a été vérifiée.

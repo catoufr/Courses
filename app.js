@@ -12,7 +12,7 @@ const $ = (s, r = document) => r.querySelector(s);
 /* ---------- Données ---------- */
 function fresh() {
   const l = { id: uid(), name: 'Courses', items: [], createdAt: Date.now() };
-  return { schema: 1, categories: [...DEFAULT_CATS], products: [], lists: [l], currentList: l.id, history: [], updatedAt: Date.now() };
+  return { schema: 1, categories: [...DEFAULT_CATS], products: [], lists: [l], currentList: l.id, history: [], tickets: [], labelMap: {}, updatedAt: Date.now() };
 }
 function migrate(d) {
   const s = Object.assign(fresh(), d);
@@ -22,6 +22,8 @@ function migrate(d) {
   if (!s.categories.includes('Autre')) s.categories.push('Autre');
   if (!Array.isArray(s.products)) s.products = [];
   if (!Array.isArray(s.history)) s.history = [];
+  if (!Array.isArray(s.tickets)) s.tickets = [];
+  if (!s.labelMap || typeof s.labelMap !== 'object') s.labelMap = {};
   return s;
 }
 function load() {
@@ -70,11 +72,92 @@ function modal(html) { const m = $('#modal'); m.innerHTML = `<div class="sheet">
 function closeModal() { const m = $('#modal'); m.hidden = true; m.innerHTML = ''; }
 const catSelect = (id, sel) => `<select id="${id}">${S.categories.map(c => `<option ${c === sel ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>`;
 
+/* ---------- Tickets de caisse : outils ---------- */
+const norm = s => String(s == null ? '' : s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+const num = v => { if (v == null || v === '') return 0; const n = parseFloat(String(v).replace(',', '.').replace(/[^\d.\-]/g, '')); return isFinite(n) ? n : 0; };
+const r2 = n => Math.round(n * 100) / 100;
+const fmt = n => r2(n).toFixed(2).replace('.', ',');
+const today = () => new Date().toLocaleDateString('sv-SE');
+const prodByNorm = n => { const k = norm(n); return k ? S.products.find(p => norm(p.name) === k) : null; };
+const mapGet = (store, label) => { const m = S.labelMap[norm(store)]; const id = m && m[norm(label)]; return id && prodById(id) ? id : null; };
+const mapSet = (store, label, pid) => { const s = norm(store), l = norm(label); if (!s || !l) return; (S.labelMap[s] = S.labelMap[s] || {})[l] = pid; };
+function matchCat(r) {
+  const k = norm(r); if (!k) return 'Autre';
+  return S.categories.find(c => norm(c) === k) || S.categories.find(c => norm(c).includes(k) || k.includes(norm(c))) || 'Autre';
+}
+function lastPrices() {
+  const out = {};
+  S.tickets.slice().sort((a, b) => a.date.localeCompare(b.date)).forEach(t => t.lines.forEach(l => { out[l.productId] = { price: l.unitPrice, store: t.store }; }));
+  return out;
+}
+async function copyText(t) {
+  try { await navigator.clipboard.writeText(t); return true; } catch (e) { /* repli ci-dessous */ }
+  const ta = document.createElement('textarea'); ta.value = t; document.body.appendChild(ta); ta.select();
+  let ok = false; try { ok = document.execCommand('copy'); } catch (e) { } ta.remove(); return ok;
+}
+
+// Consignes à donner à l'IA (Gemini ou Claude) avec la photo du ticket.
+function buildPrompt() {
+  return `Tu reçois la photo d'un ticket de caisse. Extrais-en les informations et réponds UNIQUEMENT avec un JSON valide (sans texte autour, sans balises de code), de cette forme :
+{
+  "magasin": "nom de l'enseigne",
+  "date": "AAAA-MM-JJ",
+  "total": 0.00,
+  "lignes": [
+    {
+      "designation": "libellé exact imprimé sur le ticket",
+      "nom": "nom court et lisible du produit (ex. Lait demi-écrémé 1L)",
+      "quantite": 1,
+      "unite": "",
+      "prix_unitaire": 0.00,
+      "remise": 0.00,
+      "rayon": "un rayon de la liste ci-dessous"
+    }
+  ]
+}
+Règles :
+- Une entrée par produit acheté. Ignore les lignes de total, TVA, paiement et points fidélité.
+- "quantite" : nombre d'articles, ou poids en kg si le produit est vendu au poids (alors "unite" vaut "kg"). Sinon laisse "unite" vide.
+- "prix_unitaire" : prix TTC d'une unité (ou du kilo), avant remise, en euros, avec un point décimal.
+- "remise" : avantage carte, promotion ou réduction liée à ce produit, en nombre positif (0 s'il n'y en a pas). Si la remise est imprimée sur une ligne séparée, rattache-la au produit concerné.
+- "rayon" : choisis exactement UNE valeur parmi : ${S.categories.join(' | ')}
+- "total" : le montant total payé inscrit sur le ticket.
+- Si une information est illisible, mets null plutôt que d'inventer.`;
+}
+
+function parseTicket(txt) {
+  const t = String(txt || '').trim().replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
+  const a = t.indexOf('{'), b = t.lastIndexOf('}');
+  if (a < 0 || b < a) throw new Error('aucun JSON trouvé');
+  const d = JSON.parse(t.slice(a, b + 1));
+  if (!d || !Array.isArray(d.lignes) || !d.lignes.length) throw new Error('aucune ligne de produit');
+  return d;
+}
+
+function buildReview(d) {
+  const store = String(d.magasin || '').trim();
+  const lines = d.lignes.map(l => {
+    const label = String(l.designation || l.nom || '').trim();
+    const nom = String(l.nom || l.designation || '').trim();
+    const mapped = mapGet(store, label);
+    const p = (mapped && prodById(mapped)) || prodByNorm(nom);
+    return {
+      on: true, label, nom: p ? p.name : nom, cat: p ? p.category : matchCat(l.rayon),
+      qty: num(l.quantite) || 1, unit: String(l.unite || '').trim(), price: num(l.prix_unitaire), disc: Math.abs(num(l.remise)),
+    };
+  });
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(String(d.date || '')) ? d.date : today();
+  return { store, date, total: num(d.total), lines };
+}
+
 /* ---------- Vues ---------- */
+let imp = { photo: null, photoFile: null, review: null, json: '', error: '' };
+function resetImp() { if (imp.photo) URL.revokeObjectURL(imp.photo); imp = { photo: null, photoFile: null, review: null, json: '', error: '' }; }
+
 function render() {
   document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
   const v = $('#view');
-  v.innerHTML = tab === 'lists' ? viewLists() : tab === 'catalog' ? viewCatalog() : viewData();
+  v.innerHTML = tab === 'lists' ? viewLists() : tab === 'catalog' ? viewCatalog() : tab === 'tickets' ? viewTickets() : viewData();
 }
 
 function itemRow(i) {
@@ -131,14 +214,83 @@ function catListHtml(q) {
   const ps = S.products.filter(p => p.name.toLowerCase().includes(q)).sort((a, b) => a.name.localeCompare(b.name, 'fr'));
   if (!ps.length) return `<p class="empty">${S.products.length ? 'Aucun résultat.' : 'Catalogue vide. Il se remplit tout seul quand tu ajoutes des articles aux listes.'}</p>`;
   const g = {}; ps.forEach(p => (g[p.category] = g[p.category] || []).push(p));
+  const lp = lastPrices();
   return orderedCats(Object.keys(g)).filter(c => g[c]).map(c =>
     `<section><h2>${esc(c)}</h2>` + g[c].map(p =>
-      `<div class="item"><div class="txt" data-act="editProd" data-id="${p.id}"><b>${esc(p.name)}</b><span>${p.unit ? esc(p.unit) : 'sans unité'}</span></div>
+      `<div class="item"><div class="txt" data-act="editProd" data-id="${p.id}"><b>${esc(p.name)}</b><span>${p.unit ? esc(p.unit) : 'sans unité'}${lp[p.id] ? ' · ' + fmt(lp[p.id].price) + ' € · ' + esc(lp[p.id].store) : ''}</span></div>
        <button class="ic sm" data-act="prodToList" data-id="${p.id}" title="Ajouter à la liste" aria-label="Ajouter à la liste">＋</button></div>`).join('') + '</section>').join('');
 }
 function viewCatalog() {
   return `<div class="bar"><input id="catSearch" type="search" placeholder="Rechercher un produit…" value="${esc(catQuery)}">
     <button class="pri" data-act="addProd">＋ Produit</button></div><div id="catList">${catListHtml(catQuery)}</div>`;
+}
+
+function viewTickets() {
+  if (imp.review) return viewReview();
+  const tl = S.tickets.slice().sort((a, b) => b.date.localeCompare(a.date)).map(t =>
+    `<div class="item"><div class="txt"><b>${esc(t.store)} · ${esc(t.date)}</b><span>${t.lines.length} article${t.lines.length > 1 ? 's' : ''} · ${fmt(t.total)} €</span></div>
+     <button class="ic sm" data-act="tkDel" data-id="${t.id}" aria-label="Supprimer le ticket">✕</button></div>`).join('')
+    || '<p class="empty">Aucun ticket importé.</p>';
+  return `<div class="card"><h2>Importer un ticket</h2>
+      <p><b>1.</b> Prends le ticket en photo (ou choisis une image).</p>
+      <input type="file" id="tkCam" accept="image/*" capture="environment" hidden>
+      <input type="file" id="tkFile" accept="image/*" hidden>
+      <div class="row"><button class="pri" data-act="tkCam">📷 Photo</button><button class="sec" data-act="tkFile">Galerie</button></div>
+      ${imp.photo ? `<img class="tkimg" src="${imp.photo}" alt="Ticket">` : ''}
+      <p><b>2.</b> Copie les consignes, puis envoie-les avec la photo à Gemini ou Claude.</p>
+      <div class="row"><button class="sec" data-act="tkCopy">Copier les consignes</button><button class="sec" data-act="tkShare">Envoyer la photo…</button></div>
+      <p><b>3.</b> Colle la réponse (JSON) ci-dessous.</p>
+      <textarea id="tkJson" rows="5" placeholder="Colle le JSON ici">${esc(imp.json)}</textarea>
+      <div class="row"><button class="sec" data-act="tkPaste">Coller</button><button class="pri" data-act="tkParse">Analyser</button></div>
+      ${imp.error ? `<p class="err">${esc(imp.error)}</p>` : ''}</div>
+    <div class="card"><h2>Tickets importés</h2>${tl}</div>`;
+}
+
+function reviewTotals() {
+  const sum = r2(imp.review.lines.filter(l => l.on).reduce((s, l) => s + (l.qty * l.price - l.disc), 0));
+  return { sum, diff: r2(sum - (imp.review.total || 0)) };
+}
+function sumHtml() {
+  const { sum, diff } = reviewTotals(); const R = imp.review;
+  if (!R.total) return `Somme des lignes : ${fmt(sum)} €`;
+  return `Somme des lignes : ${fmt(sum)} € · ticket : ${fmt(R.total)} € ` + (Math.abs(diff) <= 0.05 ? '✔' : `<b class="warn">écart ${fmt(diff)} €</b>`);
+}
+function viewReview() {
+  const R = imp.review;
+  const stores = [...new Set(S.tickets.map(t => t.store))].map(s => `<option value="${esc(s)}">`).join('');
+  const rows = R.lines.map((l, i) => {
+    const p = prodByNorm(l.nom);
+    const cats = S.categories.map(c => `<option ${c === (p ? p.category : l.cat) ? 'selected' : ''}>${esc(c)}</option>`).join('');
+    return `<div class="rl ${l.on ? '' : 'off'}">
+      <label class="rhead"><input type="checkbox" data-rf="on" data-i="${i}" ${l.on ? 'checked' : ''}><span class="lab">${esc(l.label)}</span><span class="badge ${p ? 'ok' : 'new'}">${p ? 'existe' : 'nouveau'}</span></label>
+      <div class="rgrid">
+        <input class="full" data-rf="nom" data-i="${i}" value="${esc(l.nom)}" placeholder="Nom du produit">
+        <select class="full" data-rf="cat" data-i="${i}" ${p ? 'disabled' : ''}>${cats}</select>
+        <label>Qté<input type="number" step="any" min="0" inputmode="decimal" data-rf="qty" data-i="${i}" value="${l.qty}"></label>
+        <label>Prix €<input type="number" step="0.01" min="0" inputmode="decimal" data-rf="price" data-i="${i}" value="${l.price}"></label>
+        <label>Remise €<input type="number" step="0.01" min="0" inputmode="decimal" data-rf="disc" data-i="${i}" value="${l.disc}"></label>
+        <b class="lt" id="lt${i}">${fmt(l.qty * l.price - l.disc)} €</b>
+      </div></div>`;
+  }).join('');
+  return `<div class="card"><h2>Vérifier le ticket</h2>
+      <label class="fl">Magasin<input id="tkStore" list="storeList" value="${esc(R.store)}"></label><datalist id="storeList">${stores}</datalist>
+      <div class="two"><label class="fl">Date<input id="tkDate" type="date" value="${esc(R.date)}"></label>
+      <label class="fl">Total ticket €<input id="tkTotal" type="number" step="0.01" inputmode="decimal" value="${R.total || ''}"></label></div>
+      <p id="tkSum">${sumHtml()}</p></div>${rows}
+    <div class="row"><button class="sec" data-act="tkCancel">Annuler</button><button class="pri" data-act="tkValidate">Valider (${R.lines.filter(l => l.on).length})</button></div>`;
+}
+
+function reviewInput(t) {
+  const R = imp.review; if (!R) return;
+  if (t.id === 'tkStore') R.store = t.value;
+  else if (t.id === 'tkDate') R.date = t.value;
+  else if (t.id === 'tkTotal') R.total = num(t.value);
+  else {
+    const i = +t.dataset.i, l = R.lines[i], f = t.dataset.rf; if (!l) return;
+    if (f === 'on') l.on = t.checked; else if (f === 'nom' || f === 'cat') l[f] = t.value; else l[f] = num(t.value);
+    const lt = $('#lt' + i); if (lt) lt.textContent = fmt(l.qty * l.price - l.disc) + ' €';
+  }
+  const s = $('#tkSum'); if (s) s.innerHTML = sumHtml();
 }
 
 function viewData() {
@@ -247,6 +399,49 @@ const ACT = {
   catUp(i) { i = +i; if (i < 1) return; [S.categories[i - 1], S.categories[i]] = [S.categories[i], S.categories[i - 1]]; save(); render(); },
   catDown(i) { i = +i; if (i >= S.categories.length - 1) return; [S.categories[i + 1], S.categories[i]] = [S.categories[i], S.categories[i + 1]]; save(); render(); },
 
+  tkCam() { $('#tkCam').click(); },
+  tkFile() { $('#tkFile').click(); },
+  async tkCopy() { toast((await copyText(buildPrompt())) ? 'Consignes copiées' : 'Copie impossible'); },
+  async tkShare() {
+    if (!imp.photoFile) { toast("Choisis d'abord une photo"); return; }
+    const data = { files: [imp.photoFile], text: buildPrompt(), title: 'Ticket de caisse' };
+    if (navigator.canShare && navigator.canShare(data)) { try { await navigator.share(data); } catch (e) { /* annulé */ } }
+    else toast('Partage indisponible : ouvre Gemini ou Claude et joins la photo');
+  },
+  async tkPaste() {
+    try { imp.json = await navigator.clipboard.readText(); imp.error = ''; render(); }
+    catch (e) { toast('Colle à la main dans le champ'); }
+  },
+  tkParse() {
+    try { imp.review = buildReview(parseTicket(imp.json)); imp.error = ''; }
+    catch (e) { imp.error = 'Réponse non reconnue : ' + e.message; }
+    render(); window.scrollTo(0, 0);
+  },
+  tkCancel() { imp.review = null; render(); },
+  tkValidate() {
+    const R = imp.review; if (!R) return;
+    const store = R.store.trim(); if (!store) { toast('Indique le magasin'); return; }
+    const on = R.lines.filter(l => l.on && l.nom.trim()); if (!on.length) { toast('Aucune ligne sélectionnée'); return; }
+    const tid = uid(); const dateMs = new Date(R.date + 'T12:00:00').getTime() || Date.now();
+    const lines = []; let created = 0;
+    on.forEach(l => {
+      let p = prodByNorm(l.nom);
+      if (!p) { p = { id: uid(), name: l.nom.trim(), category: l.cat || 'Autre', unit: l.unit || '' }; S.products.push(p); created++; }
+      else if (!p.unit && l.unit) p.unit = l.unit;
+      mapSet(store, l.label, p.id);
+      lines.push({ label: l.label, productId: p.id, qty: l.qty, unitPrice: l.price, discount: l.disc, lineTotal: r2(l.qty * l.price - l.disc) });
+      S.history.push({ id: uid(), date: dateMs, productId: p.id, name: p.name, qty: l.qty, listName: 'Ticket ' + store, ticketId: tid });
+    });
+    const sum = r2(lines.reduce((s, l) => s + l.lineTotal, 0));
+    S.tickets.push({ id: tid, store, date: R.date, total: R.total || sum, lines });
+    save(); resetImp(); tab = 'catalog'; render();
+    toast(`${created} produit${created > 1 ? 's' : ''} créé${created > 1 ? 's' : ''}, ${lines.length} ligne${lines.length > 1 ? 's' : ''} enregistrée${lines.length > 1 ? 's' : ''}`);
+  },
+  tkDel(id) {
+    if (!confirm('Supprimer ce ticket et ses achats archivés ? Les produits du catalogue sont conservés.')) return;
+    S.tickets = S.tickets.filter(t => t.id !== id); S.history = S.history.filter(h => h.ticketId !== id); save(); render();
+  },
+
   close() { closeModal(); },
 };
 
@@ -294,16 +489,28 @@ document.addEventListener('submit', e => {
 });
 
 document.addEventListener('input', e => {
-  if (e.target.id === 'addName') {
-    const p = prodByName(e.target.value);
+  const t = e.target;
+  if (t.id === 'addName') {
+    const p = prodByName(t.value);
     if (p) { const s = $('#addCat'); if (s) s.value = p.category; }
-  } else if (e.target.id === 'catSearch') {
-    catQuery = e.target.value; $('#catList').innerHTML = catListHtml(catQuery);
+  } else if (t.id === 'catSearch') {
+    catQuery = t.value; $('#catList').innerHTML = catListHtml(catQuery);
+  } else if (t.id === 'tkJson') {
+    imp.json = t.value;
+  } else if (imp.review && (t.dataset.rf || /^tk(Store|Date|Total)$/.test(t.id))) {
+    reviewInput(t);
   }
 });
 
 document.addEventListener('change', e => {
   if (e.target.id === 'listSel') { S.currentList = e.target.value; save(); render(); }
+  else if (e.target.id === 'tkCam' || e.target.id === 'tkFile') {
+    const f = e.target.files[0]; if (!f) return;
+    if (imp.photo) URL.revokeObjectURL(imp.photo);
+    imp.photoFile = f; imp.photo = URL.createObjectURL(f); e.target.value = ''; render();
+  } else if (imp.review && e.target.dataset && (e.target.dataset.rf === 'on' || e.target.dataset.rf === 'nom')) {
+    reviewInput(e.target); render();
+  }
   else if (e.target.id === 'impFile') {
     const file = e.target.files[0]; if (!file) return;
     const r = new FileReader();

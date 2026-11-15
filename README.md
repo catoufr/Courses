@@ -10,6 +10,9 @@ Appli web installable (PWA), sans serveur, qui fonctionne hors ligne.
 ## Test local
 Ouvrir `index.html` dans un navigateur suffit (le mode hors ligne et l'installation demandent https ou localhost).
 
+## Importer un ticket de caisse
+Onglet « Tickets » : photo du ticket, copie des consignes, envoi à Gemini ou Claude, collage du JSON reçu, vérification, puis validation pour créer les produits du catalogue.
+
 ## Fichiers
 - `index.html`, `style.css`, `app.js` : l'appli
 - `sw.js` : cache hors ligne
