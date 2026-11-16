@@ -127,6 +127,7 @@ Règles :
 
 function parseTicket(txt) {
   const t = String(txt || '').trim().replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
+  if (t.includes('libellé exact imprimé')) throw new Error("c'est la consigne, pas la réponse de l'IA");
   const a = t.indexOf('{'), b = t.lastIndexOf('}');
   if (a < 0 || b < a) throw new Error('aucun JSON trouvé');
   const d = JSON.parse(t.slice(a, b + 1));
@@ -150,9 +151,42 @@ function buildReview(d) {
   return { store, date, total: num(d.total), lines };
 }
 
+function shrinkImage(file, max = 2200) {
+  return new Promise(res => {
+    const img = new Image(); const url = URL.createObjectURL(file);
+    img.onload = () => {
+      try {
+        const k = Math.min(1, max / Math.max(img.width, img.height));
+        const c = document.createElement('canvas'); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        c.toBlob(b => { URL.revokeObjectURL(url); res(b ? new File([b], 'ticket.jpg', { type: 'image/jpeg' }) : file); }, 'image/jpeg', 0.85);
+      } catch (e) { URL.revokeObjectURL(url); res(file); }
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); res(file); };
+    img.src = url;
+  });
+}
+async function loadPhoto(f) {
+  const small = await shrinkImage(f);
+  if (imp.photo) URL.revokeObjectURL(imp.photo);
+  imp.photoFile = small; imp.photo = URL.createObjectURL(small); render();
+}
+
+// Au retour depuis Claude ou Gemini : si le presse-papiers contient la réponse, on remplit le formulaire.
+async function checkClipboardForTicket() {
+  if (!imp.waiting || imp.review) return;
+  try {
+    const t = await navigator.clipboard.readText();
+    if (!/"lignes"/.test(t)) return;
+    const review = buildReview(parseTicket(t));
+    imp.json = t; imp.review = review; imp.error = ''; imp.waiting = false; tab = 'tickets';
+    render(); window.scrollTo(0, 0); toast('Ticket reconnu');
+  } catch (e) { /* pas de droit de lecture ou pas encore la réponse : l'utilisateur colle à la main */ }
+}
+
 /* ---------- Vues ---------- */
-let imp = { photo: null, photoFile: null, review: null, json: '', error: '' };
-function resetImp() { if (imp.photo) URL.revokeObjectURL(imp.photo); imp = { photo: null, photoFile: null, review: null, json: '', error: '' }; }
+let imp = { photo: null, photoFile: null, review: null, json: '', error: '', waiting: false };
+function resetImp() { if (imp.photo) URL.revokeObjectURL(imp.photo); imp = { photo: null, photoFile: null, review: null, json: '', error: '', waiting: false }; }
 
 function render() {
   document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
@@ -231,17 +265,24 @@ function viewTickets() {
     `<div class="item"><div class="txt"><b>${esc(t.store)} · ${esc(t.date)}</b><span>${t.lines.length} article${t.lines.length > 1 ? 's' : ''} · ${fmt(t.total)} €</span></div>
      <button class="ic sm" data-act="tkDel" data-id="${t.id}" aria-label="Supprimer le ticket">✕</button></div>`).join('')
     || '<p class="empty">Aucun ticket importé.</p>';
-  return `<div class="card"><h2>Importer un ticket</h2>
-      <p><b>1.</b> Prends le ticket en photo (ou choisis une image).</p>
+  return `<div class="card"><h2>Photo du ticket</h2>
+      <p>Prends le ticket en photo ou choisis une image. Elle est réduite avant l'envoi à l'IA.</p>
       <input type="file" id="tkCam" accept="image/*" capture="environment" hidden>
       <input type="file" id="tkFile" accept="image/*" hidden>
       <div class="row"><button class="pri" data-act="tkCam">📷 Photo</button><button class="sec" data-act="tkFile">Galerie</button></div>
-      ${imp.photo ? `<img class="tkimg" src="${imp.photo}" alt="Ticket">` : ''}
-      <p><b>2.</b> Copie les consignes, puis envoie-les avec la photo à Gemini ou Claude.</p>
-      <div class="row"><button class="sec" data-act="tkCopy">Copier les consignes</button><button class="sec" data-act="tkShare">Envoyer la photo…</button></div>
-      <p><b>3.</b> Colle la réponse (JSON) ci-dessous.</p>
-      <textarea id="tkJson" rows="5" placeholder="Colle le JSON ici">${esc(imp.json)}</textarea>
-      <div class="row"><button class="sec" data-act="tkPaste">Coller</button><button class="pri" data-act="tkParse">Analyser</button></div>
+      ${imp.photo ? `<img class="tkimg" src="${imp.photo}" alt="Ticket">` : ''}</div>
+    <div class="card"><h2>Lire le ticket avec une IA</h2>
+      <p>Ajoute d'abord la photo ci-dessus. Puis :<br>
+      <b>1.</b> « Analyser avec Claude ou Gemini » copie la consigne et envoie la photo vers l'appli que tu choisis.
+      <b>2.</b> Dans l'appli, colle la consigne si elle n'apparaît pas, puis touche « copier » sur la réponse.
+      <b>3.</b> Reviens ici : le formulaire se remplit tout seul (sinon, touche « Coller la réponse »). Vérifie, corrige, valide.</p>
+      <button class="pri wide" data-act="tkAnalyze">Analyser avec Claude ou Gemini</button>
+      <div class="two"><button class="sec" data-act="tkCopy">Copier la consigne</button><button class="sec" data-act="tkOpenClaude">Ouvrir Claude</button></div>
+      <button class="sec wide" data-act="tkOpenGemini">Ouvrir Gemini</button>
+      <button class="sec wide" data-act="tkPaste">Coller la réponse</button>
+      <details ${imp.json || imp.error ? 'open' : ''}><summary>Coller la réponse à la main</summary>
+        <textarea id="tkJson" rows="5" placeholder="Colle ici le JSON de l'IA">${esc(imp.json)}</textarea>
+        <button class="sec wide" data-act="tkParse">Analyser cette réponse</button></details>
       ${imp.error ? `<p class="err">${esc(imp.error)}</p>` : ''}</div>
     <div class="card"><h2>Tickets importés</h2>${tl}</div>`;
 }
@@ -401,19 +442,23 @@ const ACT = {
 
   tkCam() { $('#tkCam').click(); },
   tkFile() { $('#tkFile').click(); },
-  async tkCopy() { toast((await copyText(buildPrompt())) ? 'Consignes copiées' : 'Copie impossible'); },
-  async tkShare() {
-    if (!imp.photoFile) { toast("Choisis d'abord une photo"); return; }
+  async tkCopy() { toast((await copyText(buildPrompt())) ? 'Consigne copiée' : 'Copie impossible'); },
+  async tkAnalyze() {
+    if (!imp.photoFile) { toast("Ajoute d'abord la photo"); return; }
+    const copied = await copyText(buildPrompt()); imp.waiting = true;
     const data = { files: [imp.photoFile], text: buildPrompt(), title: 'Ticket de caisse' };
     if (navigator.canShare && navigator.canShare(data)) { try { await navigator.share(data); } catch (e) { /* annulé */ } }
-    else toast('Partage indisponible : ouvre Gemini ou Claude et joins la photo');
+    else toast(copied ? 'Consigne copiée : ouvre Claude ou Gemini et joins la photo' : 'Partage indisponible');
   },
+  async tkOpenClaude() { await copyText(buildPrompt()); imp.waiting = true; toast('Consigne copiée : colle-la et joins la photo'); window.open('https://claude.ai/new', '_blank'); },
+  async tkOpenGemini() { await copyText(buildPrompt()); imp.waiting = true; toast('Consigne copiée : colle-la et joins la photo'); window.open('https://gemini.google.com/app', '_blank'); },
   async tkPaste() {
-    try { imp.json = await navigator.clipboard.readText(); imp.error = ''; render(); }
-    catch (e) { toast('Colle à la main dans le champ'); }
+    try { imp.json = await navigator.clipboard.readText(); }
+    catch (e) { imp.error = 'Lecture du presse-papiers impossible : colle la réponse à la main ci-dessous.'; render(); return; }
+    ACT.tkParse();
   },
   tkParse() {
-    try { imp.review = buildReview(parseTicket(imp.json)); imp.error = ''; }
+    try { imp.review = buildReview(parseTicket(imp.json)); imp.error = ''; imp.waiting = false; }
     catch (e) { imp.error = 'Réponse non reconnue : ' + e.message; }
     render(); window.scrollTo(0, 0);
   },
@@ -506,8 +551,7 @@ document.addEventListener('change', e => {
   if (e.target.id === 'listSel') { S.currentList = e.target.value; save(); render(); }
   else if (e.target.id === 'tkCam' || e.target.id === 'tkFile') {
     const f = e.target.files[0]; if (!f) return;
-    if (imp.photo) URL.revokeObjectURL(imp.photo);
-    imp.photoFile = f; imp.photo = URL.createObjectURL(f); e.target.value = ''; render();
+    e.target.value = ''; loadPhoto(f);
   } else if (imp.review && e.target.dataset && (e.target.dataset.rf === 'on' || e.target.dataset.rf === 'nom')) {
     reviewInput(e.target); render();
   }
@@ -525,6 +569,9 @@ document.addEventListener('change', e => {
     r.readAsText(file); e.target.value = '';
   }
 });
+
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkClipboardForTicket(); });
+if (window.addEventListener) window.addEventListener('focus', checkClipboardForTicket);
 
 render();
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {

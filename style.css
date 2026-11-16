@@ -80,3 +80,9 @@ textarea{width:100%;background:var(--card);border:1px solid var(--line);border-r
 .rgrid label{font-size:.75rem;color:var(--mute);display:block}
 .rgrid label input{width:100%;margin-top:2px}
 .rgrid .lt{white-space:nowrap;padding-bottom:10px}
+
+.wide{display:block;width:100%;margin-top:10px;padding:14px}
+.card .two{margin-top:10px}
+details{margin-top:12px}
+summary{padding:8px 0;cursor:pointer;color:var(--ink)}
+details textarea{margin:8px 0 0}

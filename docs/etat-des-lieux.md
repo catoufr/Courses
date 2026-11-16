@@ -15,8 +15,9 @@ Mis à jour : 15/11/2026
   - suggestions : produits achetés au moins 2 fois, pas encore sur la liste
   - export / import JSON, mode hors ligne, installable (PWA)
 - Import des tickets de caisse (partie de la V3 livrée en avance), onglet « Tickets » :
-  - photo ou image, consignes à copier pour Gemini / Claude, bouton d'envoi de la photo
-  - collage du JSON, table de vérification (nom, rayon, quantité, prix, remise) avec contrôle de la somme par rapport au total du ticket
+  - même parcours que l'appli véhicule : photo réduite, bouton « Analyser avec Claude ou Gemini » (copie la consigne et partage la photo), boutons « Ouvrir Claude » / « Ouvrir Gemini », « Coller la réponse »
+  - au retour dans l'appli, le formulaire se remplit tout seul si la réponse de l'IA est dans le presse-papiers ; saisie à la main possible
+  - table de vérification (nom, rayon, quantité, prix, remise) avec contrôle de la somme par rapport au total du ticket
   - création automatique des produits du catalogue, rayon proposé par l'IA
   - mémorisation « libellé du ticket → produit » par magasin
   - prix et magasin enregistrés (dernier prix affiché dans le catalogue), achats ajoutés à l'historique donc aux suggestions

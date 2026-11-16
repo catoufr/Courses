@@ -11,7 +11,7 @@ Appli web installable (PWA), sans serveur, qui fonctionne hors ligne.
 Ouvrir `index.html` dans un navigateur suffit (le mode hors ligne et l'installation demandent https ou localhost).
 
 ## Importer un ticket de caisse
-Onglet « Tickets » : photo du ticket, copie des consignes, envoi à Gemini ou Claude, collage du JSON reçu, vérification, puis validation pour créer les produits du catalogue.
+Onglet « Tickets » : photo du ticket, « Analyser avec Claude ou Gemini » (consigne copiée, photo partagée), copie de la réponse puis retour dans l'appli : le formulaire se remplit tout seul. Vérification, puis validation pour créer les produits du catalogue.
 
 ## Fichiers
 - `index.html`, `style.css`, `app.js` : l'appli
