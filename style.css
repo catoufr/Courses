@@ -86,3 +86,5 @@ textarea{width:100%;background:var(--card);border:1px solid var(--line);border-r
 details{margin-top:12px}
 summary{padding:8px 0;cursor:pointer;color:var(--ink)}
 details textarea{margin:8px 0 0}
+
+.tkpdf{margin:10px 0 0;padding:10px;background:var(--cart);border-radius:10px;overflow-wrap:anywhere}

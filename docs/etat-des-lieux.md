@@ -15,6 +15,7 @@ Mis à jour : 15/11/2026
   - suggestions : produits achetés au moins 2 fois, pas encore sur la liste
   - export / import JSON, mode hors ligne, installable (PWA)
 - Import des tickets de caisse (partie de la V3 livrée en avance), onglet « Tickets » :
+  - accepte les photos, les images et les PDF (eTickets téléchargés depuis l'appli du magasin, ex. Magasins U)
   - même parcours que l'appli véhicule : photo réduite, bouton « Analyser avec Claude ou Gemini » (copie la consigne et partage la photo), boutons « Ouvrir Claude » / « Ouvrir Gemini », « Coller la réponse »
   - au retour dans l'appli, le formulaire se remplit tout seul si la réponse de l'IA est dans le presse-papiers ; saisie à la main possible
   - table de vérification (nom, rayon, quantité, prix, remise) avec contrôle de la somme par rapport au total du ticket

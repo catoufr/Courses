@@ -98,7 +98,7 @@ async function copyText(t) {
 
 // Consignes à donner à l'IA (Gemini ou Claude) avec la photo du ticket.
 function buildPrompt() {
-  return `Tu reçois la photo d'un ticket de caisse. Extrais-en les informations et réponds UNIQUEMENT avec un JSON valide (sans texte autour, sans balises de code), de cette forme :
+  return `Tu reçois la photo ou le PDF d'un ticket de caisse. Extrais-en les informations et réponds UNIQUEMENT avec un JSON valide (sans texte autour, sans balises de code), de cette forme :
 {
   "magasin": "nom de l'enseigne",
   "date": "AAAA-MM-JJ",
@@ -167,9 +167,11 @@ function shrinkImage(file, max = 2200) {
   });
 }
 async function loadPhoto(f) {
-  const small = await shrinkImage(f);
+  const pdf = f.type === 'application/pdf' || /\.pdf$/i.test(f.name || '');
+  const out = pdf ? f : await shrinkImage(f);
   if (imp.photo) URL.revokeObjectURL(imp.photo);
-  imp.photoFile = small; imp.photo = URL.createObjectURL(small); render();
+  imp.photoFile = out; imp.photo = pdf ? null : URL.createObjectURL(out); imp.isPdf = pdf; imp.fileName = f.name || 'ticket.pdf';
+  render();
 }
 
 // Au retour depuis Claude ou Gemini : si le presse-papiers contient la réponse, on remplit le formulaire.
@@ -185,8 +187,8 @@ async function checkClipboardForTicket() {
 }
 
 /* ---------- Vues ---------- */
-let imp = { photo: null, photoFile: null, review: null, json: '', error: '', waiting: false };
-function resetImp() { if (imp.photo) URL.revokeObjectURL(imp.photo); imp = { photo: null, photoFile: null, review: null, json: '', error: '', waiting: false }; }
+let imp = { photo: null, photoFile: null, isPdf: false, fileName: '', review: null, json: '', error: '', waiting: false };
+function resetImp() { if (imp.photo) URL.revokeObjectURL(imp.photo); imp = { photo: null, photoFile: null, isPdf: false, fileName: '', review: null, json: '', error: '', waiting: false }; }
 
 function render() {
   document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
@@ -265,15 +267,15 @@ function viewTickets() {
     `<div class="item"><div class="txt"><b>${esc(t.store)} · ${esc(t.date)}</b><span>${t.lines.length} article${t.lines.length > 1 ? 's' : ''} · ${fmt(t.total)} €</span></div>
      <button class="ic sm" data-act="tkDel" data-id="${t.id}" aria-label="Supprimer le ticket">✕</button></div>`).join('')
     || '<p class="empty">Aucun ticket importé.</p>';
-  return `<div class="card"><h2>Photo du ticket</h2>
-      <p>Prends le ticket en photo ou choisis une image. Elle est réduite avant l'envoi à l'IA.</p>
+  return `<div class="card"><h2>Ticket de caisse</h2>
+      <p>Prends le ticket en photo, ou choisis un fichier : image ou PDF (eTicket téléchargé depuis l'appli du magasin). Les images sont réduites avant l'envoi à l'IA.</p>
       <input type="file" id="tkCam" accept="image/*" capture="environment" hidden>
-      <input type="file" id="tkFile" accept="image/*" hidden>
-      <div class="row"><button class="pri" data-act="tkCam">📷 Photo</button><button class="sec" data-act="tkFile">Galerie</button></div>
-      ${imp.photo ? `<img class="tkimg" src="${imp.photo}" alt="Ticket">` : ''}</div>
+      <input type="file" id="tkFile" accept="image/*,application/pdf,.pdf" hidden>
+      <div class="row"><button class="pri" data-act="tkCam">📷 Photo</button><button class="sec" data-act="tkFile">📄 Fichier (PDF, image)</button></div>
+      ${imp.isPdf ? `<p class="tkpdf">📄 ${esc(imp.fileName)}</p>` : imp.photo ? `<img class="tkimg" src="${imp.photo}" alt="Ticket">` : ''}</div>
     <div class="card"><h2>Lire le ticket avec une IA</h2>
-      <p>Ajoute d'abord la photo ci-dessus. Puis :<br>
-      <b>1.</b> « Analyser avec Claude ou Gemini » copie la consigne et envoie la photo vers l'appli que tu choisis.
+      <p>Ajoute d'abord le ticket ci-dessus. Puis :<br>
+      <b>1.</b> « Analyser avec Claude ou Gemini » copie la consigne et envoie le ticket vers l'appli que tu choisis.
       <b>2.</b> Dans l'appli, colle la consigne si elle n'apparaît pas, puis touche « copier » sur la réponse.
       <b>3.</b> Reviens ici : le formulaire se remplit tout seul (sinon, touche « Coller la réponse »). Vérifie, corrige, valide.</p>
       <button class="pri wide" data-act="tkAnalyze">Analyser avec Claude ou Gemini</button>
@@ -444,14 +446,14 @@ const ACT = {
   tkFile() { $('#tkFile').click(); },
   async tkCopy() { toast((await copyText(buildPrompt())) ? 'Consigne copiée' : 'Copie impossible'); },
   async tkAnalyze() {
-    if (!imp.photoFile) { toast("Ajoute d'abord la photo"); return; }
+    if (!imp.photoFile) { toast("Ajoute d'abord le ticket (photo ou fichier)"); return; }
     const copied = await copyText(buildPrompt()); imp.waiting = true;
     const data = { files: [imp.photoFile], text: buildPrompt(), title: 'Ticket de caisse' };
     if (navigator.canShare && navigator.canShare(data)) { try { await navigator.share(data); } catch (e) { /* annulé */ } }
-    else toast(copied ? 'Consigne copiée : ouvre Claude ou Gemini et joins la photo' : 'Partage indisponible');
+    else toast(copied ? 'Consigne copiée : ouvre Claude ou Gemini et joins le ticket' : 'Partage indisponible');
   },
-  async tkOpenClaude() { await copyText(buildPrompt()); imp.waiting = true; toast('Consigne copiée : colle-la et joins la photo'); window.open('https://claude.ai/new', '_blank'); },
-  async tkOpenGemini() { await copyText(buildPrompt()); imp.waiting = true; toast('Consigne copiée : colle-la et joins la photo'); window.open('https://gemini.google.com/app', '_blank'); },
+  async tkOpenClaude() { await copyText(buildPrompt()); imp.waiting = true; toast('Consigne copiée : colle-la et joins le ticket'); window.open('https://claude.ai/new', '_blank'); },
+  async tkOpenGemini() { await copyText(buildPrompt()); imp.waiting = true; toast('Consigne copiée : colle-la et joins le ticket'); window.open('https://gemini.google.com/app', '_blank'); },
   async tkPaste() {
     try { imp.json = await navigator.clipboard.readText(); }
     catch (e) { imp.error = 'Lecture du presse-papiers impossible : colle la réponse à la main ci-dessous.'; render(); return; }
