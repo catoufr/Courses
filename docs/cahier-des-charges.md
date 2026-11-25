@@ -1,6 +1,6 @@
 # Appli Courses — Cahier des charges
 
-Version 0.1 — 15/11/2026
+Version 0.2 — 25/11/2026
 
 ## 1. Objectif
 
@@ -44,6 +44,13 @@ Usage personnel et familial, gratuit, sans compte obligatoire.
 - Fonctionnement hors ligne : les modifications faites sans réseau se synchronisent au retour de la connexion.
 - Export/import JSON conservé comme sauvegarde.
 
+### Magasins et catégories (livré en v2.0)
+- Chaque magasin a ses propres catégories, reprises des titres imprimés sur ses tickets et créées automatiquement à l'import.
+- Un produit a, pour chaque magasin, une **catégorie du ticket** et un **rayon réel** (emplacement physique). Les deux sont distincts : deux produits d'une même catégorie peuvent être dans deux rayons différents.
+- Une liste peut être rattachée à un magasin : les articles sont alors rangés selon les catégories de ce magasin.
+- Sans magasin choisi : rayons génériques personnels.
+- Le rayon réel sera utilisé par le plan du magasin (V4).
+
 ### V2 — Mode « En courses »
 - Vue dédiée : gros boutons, groupée par rayon, articles pris repliés.
 - Actions : pris / indisponible / annuler.
@@ -80,7 +87,7 @@ Consignes à copier avec la photo, JSON attendu à définir : magasin, date, lig
 ## 7. Points ouverts
 
 1. ~~Partage à plusieurs~~ : tranché, synchronisation en temps réel. Reste à valider le choix Firebase vs Supabase et à créer le projet gratuit.
-2. Structure des catégories/rayons (liste fixe ou libre ?).
+2. ~~Structure des catégories/rayons~~ : tranché, catégories propres à chaque magasin (v2.0).
 3. Regroupement des produits « similaires » (manuel au début ?).
 4. Format exact du JSON ticket (à tester avec une vraie photo de ticket du magasin principal).
 5. Conception du plan magasin.

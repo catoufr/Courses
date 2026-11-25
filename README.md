@@ -13,6 +13,9 @@ Ouvrir `index.html` dans un navigateur suffit (le mode hors ligne et l'installat
 ## Importer un ticket de caisse
 Onglet « Tickets » : photo du ticket ou fichier (image, PDF d'eTicket), « Analyser avec Claude ou Gemini » (consigne copiée, photo partagée), copie de la réponse puis retour dans l'appli : le formulaire se remplit tout seul. Vérification, puis validation pour créer les produits du catalogue.
 
+## Magasins et catégories
+Chaque magasin a ses catégories, créées à l'import des tickets (Réglages → Magasins pour les gérer). Dans une liste, choisis le magasin pour ranger les articles selon ses catégories.
+
 ## Fichiers
 - `index.html`, `style.css`, `app.js` : l'appli
 - `sw.js` : cache hors ligne

@@ -24,7 +24,7 @@ button{cursor:pointer}
 .ic.sm{width:40px;height:40px;border:0;background:none;color:var(--mute)}
 .bar{display:flex;gap:8px;margin-bottom:10px}
 .bar select,.bar input{flex:1}
-.add{display:grid;grid-template-columns:1fr 64px;gap:8px;margin-bottom:12px}
+.add{display:grid;grid-template-columns:1fr 92px;gap:8px;margin-bottom:12px}
 .add #addCat{grid-column:1}
 .add .pri{grid-column:2}
 .progress{color:var(--mute);font-size:.9rem;margin:4px 2px 8px}

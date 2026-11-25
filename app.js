@@ -2,18 +2,20 @@
 /* Appli Courses — V1 (local, hors ligne). La synchronisation viendra se brancher dans save(). */
 
 const KEY = 'courses.v1';
-const APP_VERSION = '1.5';
+const APP_VERSION = '2.0';
 const DEFAULT_CATS = ['Fruits et légumes', 'Boucherie / poisson', 'Crèmerie / frais', 'Boulangerie',
   'Épicerie', 'Boissons', 'Surgelés', 'Hygiène / entretien', 'Autre'];
 
 const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const $ = (s, r = document) => r.querySelector(s);
+const norm = s => String(s == null ? '' : s).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+const pretty = s => { s = String(s || '').trim(); return (s && s === s.toUpperCase() && s !== s.toLowerCase()) ? s.charAt(0) + s.slice(1).toLowerCase() : s; };
 
 /* ---------- Données ---------- */
 function fresh() {
-  const l = { id: uid(), name: 'Courses', items: [], createdAt: Date.now() };
-  return { schema: 1, categories: [...DEFAULT_CATS], products: [], lists: [l], currentList: l.id, history: [], tickets: [], labelMap: {}, updatedAt: Date.now() };
+  const l = { id: uid(), name: 'Courses', items: [], storeId: null, createdAt: Date.now() };
+  return { schema: 2, categories: [...DEFAULT_CATS], stores: [], products: [], lists: [l], currentList: l.id, history: [], tickets: [], labelMap: {}, updatedAt: Date.now() };
 }
 function migrate(d) {
   const s = Object.assign(fresh(), d);
@@ -24,7 +26,21 @@ function migrate(d) {
   if (!Array.isArray(s.products)) s.products = [];
   if (!Array.isArray(s.history)) s.history = [];
   if (!Array.isArray(s.tickets)) s.tickets = [];
+  if (!Array.isArray(s.stores)) s.stores = [];
   if (!s.labelMap || typeof s.labelMap !== 'object') s.labelMap = {};
+  // v2 : catégories propres à chaque magasin (product.place[storeId] = { cat, aisle })
+  s.products.forEach(p => { if (!p.place || typeof p.place !== 'object') p.place = {}; });
+  s.tickets.forEach(t => {
+    let st = t.storeId && s.stores.find(x => x.id === t.storeId);
+    if (!st && t.store) {
+      const k = norm(t.store); st = s.stores.find(x => norm(x.name) === k);
+      if (!st) { st = { id: uid(), name: t.store, cats: [] }; s.stores.push(st); }
+      t.storeId = st.id;
+    }
+  });
+  s.stores.forEach(st => { if (!Array.isArray(st.cats)) st.cats = []; });
+  s.lists.forEach(l => { if (!l.storeId || !s.stores.some(x => x.id === l.storeId)) l.storeId = null; });
+  s.schema = 2;
   return s;
 }
 function load() {
@@ -34,6 +50,8 @@ function load() {
 let S = load();
 let tab = 'lists';
 let catQuery = '';
+let catStore = '';
+let stEdit = null;
 
 function save() {
   S.updatedAt = Date.now();
@@ -44,6 +62,30 @@ const curList = () => S.lists.find(l => l.id === S.currentList) || S.lists[0];
 const prodById = id => S.products.find(p => p.id === id);
 const prodByName = n => S.products.find(p => p.name.toLowerCase() === n.trim().toLowerCase());
 const orderedCats = used => [...S.categories, ...used.filter(c => !S.categories.includes(c))];
+
+/* Magasins : chaque magasin a ses catégories (celles du ticket). product.place[storeId] = { cat: catégorie du ticket, aisle: rayon réel (réservé au plan du magasin) } */
+const storeById = id => (id && S.stores.find(s => s.id === id)) || null;
+const storeByName = n => { const k = norm(n); return k ? S.stores.find(s => norm(s.name) === k) || null : null; };
+function ensureStore(name) { let s = storeByName(name); if (!s) { s = { id: uid(), name: String(name).trim(), cats: [] }; S.stores.push(s); } return s; }
+function ensureStoreCat(s, name, literal) {
+  const k = norm(name); if (!k) return '';
+  const ex = s.cats.find(c => norm(c) === k); if (ex) return ex;
+  const n = literal ? String(name).trim() : pretty(name); s.cats.push(n); return n;
+}
+const placeCat = (p, sid) => (p && sid && p.place && p.place[sid] && p.place[sid].cat) || '';
+function setPlace(p, sid, cat) { p.place = p.place || {}; const cur = p.place[sid] || { cat: '', aisle: '' }; cur.cat = cat; p.place[sid] = cur; }
+function genericCat(p) {
+  if (p.category && p.category !== 'Autre') return p.category;
+  return Object.values(p.place || {}).map(x => x && x.cat).find(Boolean) || 'Autre';
+}
+const activeStore = () => { const l = curList(); return l && l.storeId && storeById(l.storeId) ? l.storeId : null; };
+const groupOf = (p, sid) => sid ? (placeCat(p, sid) || 'Sans catégorie') : genericCat(p);
+function orderedGroups(sid, used) {
+  if (!sid) return orderedCats(used);
+  const base = [...storeById(sid).cats];
+  used.forEach(c => { if (c !== 'Sans catégorie' && !base.includes(c)) base.push(c); });
+  return base.concat('Sans catégorie');
+}
 
 function addItem(pid, qty) {
   const L = curList();
@@ -71,10 +113,11 @@ function toast(msg) {
 }
 function modal(html) { const m = $('#modal'); m.innerHTML = `<div class="sheet">${html}</div>`; m.hidden = false; }
 function closeModal() { const m = $('#modal'); m.hidden = true; m.innerHTML = ''; }
+const storeCatOptions = (sid, sel) => '<option value="">(sans catégorie)</option>' + (storeById(sid) ? storeById(sid).cats : []).map(c => `<option ${c === sel ? 'selected' : ''}>${esc(c)}</option>`).join('');
+const catSelectFor = (id, sid, sel) => sid ? `<select id="${id}">${storeCatOptions(sid, sel)}</select>` : catSelect(id, sel);
 const catSelect = (id, sel) => `<select id="${id}">${S.categories.map(c => `<option ${c === sel ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>`;
 
 /* ---------- Tickets de caisse : outils ---------- */
-const norm = s => String(s == null ? '' : s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
 const num = v => { if (v == null || v === '') return 0; const n = parseFloat(String(v).replace(',', '.').replace(/[^\d.\-]/g, '')); return isFinite(n) ? n : 0; };
 const r2 = n => Math.round(n * 100) / 100;
 const fmt = n => r2(n).toFixed(2).replace('.', ',');
@@ -101,7 +144,7 @@ async function copyText(t) {
 function buildPrompt() {
   return `Tu reçois la photo ou le PDF d'un ticket de caisse. Extrais-en les informations et réponds UNIQUEMENT avec un bloc de code \`\`\`json contenant un JSON valide, sans aucun texte avant ni après (le bloc de code est indispensable : il permet de copier la réponse en un clic), de cette forme :
 {
-  "magasin": "nom de l'enseigne",
+  "magasin": "enseigne seule, sans ville ni type de magasin (ex. U, Leclerc, Intermarché, Carrefour)",
   "date": "AAAA-MM-JJ",
   "total": 0.00,
   "lignes": [
@@ -112,7 +155,7 @@ function buildPrompt() {
       "unite": "",
       "prix_unitaire": 0.00,
       "remise": 0.00,
-      "rayon": "un rayon de la liste ci-dessous"
+      "categorie": "titre de catégorie imprimé sur le ticket pour cette ligne, ou null"
     }
   ]
 }
@@ -121,7 +164,7 @@ Règles :
 - "quantite" : nombre d'articles, ou poids en kg si le produit est vendu au poids (alors "unite" vaut "kg"). Sinon laisse "unite" vide.
 - "prix_unitaire" : prix TTC d'une unité (ou du kilo), avant remise, en euros, avec un point décimal.
 - "remise" : avantage carte, promotion ou réduction liée à ce produit, en nombre positif (0 s'il n'y en a pas). Si la remise est imprimée sur une ligne séparée, rattache-la au produit concerné.
-- "rayon" : choisis exactement UNE valeur parmi : ${S.categories.join(' | ')}
+- "categorie" : beaucoup de tickets regroupent les produits sous des titres (rayons, familles de produits). Recopie exactement, pour chaque ligne, le titre sous lequel elle est imprimée (répète-le pour toutes les lignes du groupe). Si le ticket n'imprime aucune catégorie, mets null : n'en invente jamais.
 - "total" : le montant total payé inscrit sur le ticket.
 - Si une information est illisible, mets null plutôt que d'inventer.`;
 }
@@ -138,13 +181,19 @@ function parseTicket(txt) {
 
 function buildReview(d) {
   const store = String(d.magasin || '').trim();
+  const st = storeByName(store);
   const lines = d.lignes.map(l => {
     const label = String(l.designation || l.nom || '').trim();
     const nom = String(l.nom || l.designation || '').trim();
     const mapped = mapGet(store, label);
     const p = (mapped && prodById(mapped)) || prodByNorm(nom);
+    const raw = String(l.categorie ?? l.categorie_ticket ?? l.rayon ?? '').trim();
+    const tc = /^(null|undefined|-)$/i.test(raw) ? '' : raw;
+    let tcat = '';
+    if (tc) { const ex = st && st.cats.find(c => norm(c) === norm(tc)); tcat = ex || pretty(tc); }
+    else if (p && st) tcat = placeCat(p, st.id);
     return {
-      on: true, label, nom: p ? p.name : nom, cat: p ? p.category : matchCat(l.rayon),
+      on: true, label, nom: p ? p.name : nom, tcat,
       qty: num(l.quantite) || 1, unit: String(l.unite || '').trim(), price: num(l.prix_unitaire), disc: Math.abs(num(l.remise)),
     };
   });
@@ -217,14 +266,17 @@ function viewLists() {
   const dl = S.products.map(p => `<option value="${esc(p.name)}">`).join('');
   const total = L.items.length;
   const done = L.items.filter(i => i.status === 'cart').length;
+  const sid = activeStore();
+  const storeOpts = '<option value="">🏬 Aucun magasin</option>' + S.stores.map(s => `<option value="${s.id}" ${s.id === sid ? 'selected' : ''}>🏬 ${esc(s.name)}</option>`).join('');
   let h = `<div class="bar"><select id="listSel">${opts}</select>
     <button class="ic" data-act="newList" aria-label="Nouvelle liste">＋</button>
     <button class="ic" data-act="listMenu" aria-label="Menu de la liste">⋯</button></div>
+    <div class="bar"><select id="storeSel" aria-label="Magasin">${storeOpts}</select></div>
     <form id="addForm" class="add" autocomplete="off">
       <input id="addName" list="prodList" placeholder="Ajouter un article…" required>
       <datalist id="prodList">${dl}</datalist>
       <input id="addQty" type="number" min="1" value="1" inputmode="numeric" aria-label="Quantité">
-      ${catSelect('addCat', 'Autre')}
+      ${catSelectFor('addCat', sid, sid ? '' : 'Autre')}
       <button class="pri">Ajouter</button>
     </form>`;
 
@@ -236,9 +288,9 @@ function viewLists() {
 
   if (total) h += `<div class="progress">${done} / ${total} dans le caddie</div>`;
   const groups = {};
-  L.items.forEach(i => { const p = prodById(i.productId); const c = (p && p.category) || 'Autre'; (groups[c] = groups[c] || []).push(i); });
+  L.items.forEach(i => { const p = prodById(i.productId); const c = p ? groupOf(p, sid) : 'Autre'; (groups[c] = groups[c] || []).push(i); });
   const rank = { todo: 0, cart: 1, unavailable: 2 };
-  orderedCats(Object.keys(groups)).forEach(c => {
+  orderedGroups(sid, Object.keys(groups)).forEach(c => {
     const arr = groups[c]; if (!arr) return;
     arr.sort((a, b) => rank[a.status] - rank[b.status]);
     h += `<section><h2>${esc(c)}</h2>${arr.map(itemRow).join('')}</section>`;
@@ -252,16 +304,19 @@ function catListHtml(q) {
   q = q.toLowerCase();
   const ps = S.products.filter(p => p.name.toLowerCase().includes(q)).sort((a, b) => a.name.localeCompare(b.name, 'fr'));
   if (!ps.length) return `<p class="empty">${S.products.length ? 'Aucun résultat.' : 'Catalogue vide. Il se remplit tout seul quand tu ajoutes des articles aux listes.'}</p>`;
-  const g = {}; ps.forEach(p => (g[p.category] = g[p.category] || []).push(p));
+  const g = {}; ps.forEach(p => { const k = groupOf(p, catStore || null); (g[k] = g[k] || []).push(p); });
   const lp = lastPrices();
-  return orderedCats(Object.keys(g)).filter(c => g[c]).map(c =>
+  return orderedGroups(catStore || null, Object.keys(g)).filter(c => g[c]).map(c =>
     `<section><h2>${esc(c)}</h2>` + g[c].map(p =>
       `<div class="item"><div class="txt" data-act="editProd" data-id="${p.id}"><b>${esc(p.name)}</b><span>${p.unit ? esc(p.unit) : 'sans unité'}${lp[p.id] ? ' · ' + fmt(lp[p.id].price) + ' € · ' + esc(lp[p.id].store) : ''}</span></div>
        <button class="ic sm" data-act="prodToList" data-id="${p.id}" title="Ajouter à la liste" aria-label="Ajouter à la liste">＋</button></div>`).join('') + '</section>').join('');
 }
 function viewCatalog() {
+  if (catStore && !storeById(catStore)) catStore = '';
+  const so = '<option value="">Rayons génériques</option>' + S.stores.map(s => `<option value="${s.id}" ${s.id === catStore ? 'selected' : ''}>🏬 ${esc(s.name)}</option>`).join('');
   return `<div class="bar"><input id="catSearch" type="search" placeholder="Rechercher un produit…" value="${esc(catQuery)}">
-    <button class="pri" data-act="addProd">＋ Produit</button></div><div id="catList">${catListHtml(catQuery)}</div>`;
+    <button class="pri" data-act="addProd">＋ Produit</button></div>
+    <div class="bar"><select id="catStoreSel" aria-label="Classer par magasin">${so}</select></div><div id="catList">${catListHtml(catQuery)}</div>`;
 }
 
 function viewTickets() {
@@ -303,15 +358,16 @@ function sumHtml() {
 }
 function viewReview() {
   const R = imp.review;
-  const stores = [...new Set(S.tickets.map(t => t.store))].map(s => `<option value="${esc(s)}">`).join('');
+  const stores = S.stores.map(x => `<option value="${esc(x.name)}">`).join('');
+  const st = storeByName(R.store);
+  const cl = (st ? st.cats : []).map(c => `<option value="${esc(c)}">`).join('');
   const rows = R.lines.map((l, i) => {
     const p = prodByNorm(l.nom);
-    const cats = S.categories.map(c => `<option ${c === (p ? p.category : l.cat) ? 'selected' : ''}>${esc(c)}</option>`).join('');
     return `<div class="rl ${l.on ? '' : 'off'}">
       <label class="rhead"><input type="checkbox" data-rf="on" data-i="${i}" ${l.on ? 'checked' : ''}><span class="lab">${esc(l.label)}</span><span class="badge ${p ? 'ok' : 'new'}">${p ? 'existe' : 'nouveau'}</span></label>
       <div class="rgrid">
         <input class="full" data-rf="nom" data-i="${i}" value="${esc(l.nom)}" placeholder="Nom du produit">
-        <select class="full" data-rf="cat" data-i="${i}" ${p ? 'disabled' : ''}>${cats}</select>
+        <input class="full" data-rf="tcat" data-i="${i}" list="tcatList" value="${esc(l.tcat)}" placeholder="Catégorie du ticket (vide si aucune)">
         <label>Qté<input type="number" step="any" min="0" inputmode="decimal" data-rf="qty" data-i="${i}" value="${l.qty}"></label>
         <label>Prix €<input type="number" step="0.01" min="0" inputmode="decimal" data-rf="price" data-i="${i}" value="${l.price}"></label>
         <label>Remise €<input type="number" step="0.01" min="0" inputmode="decimal" data-rf="disc" data-i="${i}" value="${l.disc}"></label>
@@ -319,10 +375,11 @@ function viewReview() {
       </div></div>`;
   }).join('');
   return `<div class="card"><h2>Vérifier le ticket</h2>
-      <label class="fl">Magasin<input id="tkStore" list="storeList" value="${esc(R.store)}"></label><datalist id="storeList">${stores}</datalist>
+      <label class="fl">Magasin<input id="tkStore" list="storeList" value="${esc(R.store)}"></label><datalist id="storeList">${stores}</datalist><datalist id="tcatList">${cl}</datalist>
       <div class="two"><label class="fl">Date<input id="tkDate" type="date" value="${esc(R.date)}"></label>
       <label class="fl">Total ticket €<input id="tkTotal" type="number" step="0.01" inputmode="decimal" value="${R.total || ''}"></label></div>
-      <p id="tkSum">${sumHtml()}</p></div>${rows}
+      <p id="tkSum">${sumHtml()}</p>
+      <p>${st ? `Magasin connu : ses catégories sont proposées.` : `Nouveau magasin : il sera créé avec les catégories de ce ticket.`}</p></div>${rows}
     <div class="row"><button class="sec" data-act="tkCancel">Annuler</button><button class="pri" data-act="tkValidate">Valider (${R.lines.filter(l => l.on).length})</button></div>`;
 }
 
@@ -333,13 +390,29 @@ function reviewInput(t) {
   else if (t.id === 'tkTotal') R.total = num(t.value);
   else {
     const i = +t.dataset.i, l = R.lines[i], f = t.dataset.rf; if (!l) return;
-    if (f === 'on') l.on = t.checked; else if (f === 'nom' || f === 'cat') l[f] = t.value; else l[f] = num(t.value);
+    if (f === 'on') l.on = t.checked; else if (f === 'nom' || f === 'tcat') l[f] = t.value; else l[f] = num(t.value);
     const lt = $('#lt' + i); if (lt) lt.textContent = fmt(l.qty * l.price - l.disc) + ' €';
   }
   const s = $('#tkSum'); if (s) s.innerHTML = sumHtml();
 }
 
+function storeModalHtml(s) {
+  const rows = s.cats.map((c, i) => `<div class="cat"><span>${esc(c)}</span>
+    <button class="ic sm" data-act="stUp" data-id="${i}" aria-label="Monter">↑</button>
+    <button class="ic sm" data-act="stDown" data-id="${i}" aria-label="Descendre">↓</button>
+    <button class="ic sm" data-act="stCatRen" data-id="${i}" aria-label="Renommer">✎</button>
+    <button class="ic sm" data-act="stCatDel" data-id="${i}" aria-label="Supprimer">✕</button></div>`).join('')
+    || "<p class=\"empty\">Aucune catégorie : elles se créent à l'import des tickets.</p>";
+  return `<h3>🏬 ${esc(s.name)}</h3>${rows}
+    <div class="row"><button class="sec" data-act="stCatAdd">＋ Catégorie</button></div>
+    <div class="row"><button class="sec" data-act="stRen">Renommer le magasin</button><button class="sec danger" data-act="stDel">Supprimer</button></div>
+    <div class="row"><button class="pri" data-act="close">Fermer</button></div>`;
+}
+const stRefresh = () => { const s = storeById(stEdit); if (s) modal(storeModalHtml(s)); };
+
 function viewData() {
+  const stores = S.stores.map(s => `<div class="cat"><span>🏬 ${esc(s.name)} · ${s.cats.length} catégorie${s.cats.length > 1 ? 's' : ''}</span>
+    <button class="ic sm" data-act="storeEdit" data-id="${s.id}" aria-label="Gérer">✎</button></div>`).join('') || '<p class="empty">Aucun magasin : ils se créent à l\'import du premier ticket.</p>';
   const cats = S.categories.map((c, i) => `<div class="cat"><span>${esc(c)}</span>
     <button class="ic sm" data-act="catUp" data-id="${i}" aria-label="Monter">↑</button>
     <button class="ic sm" data-act="catDown" data-id="${i}" aria-label="Descendre">↓</button>
@@ -349,7 +422,9 @@ function viewData() {
       <p>Exporte tes données (listes, catalogue, historique) dans un fichier à ranger sur ton Drive. Import : remplace tout le contenu.</p>
       <div class="row"><button class="pri" data-act="export">Exporter</button><button class="sec" data-act="import">Importer</button></div>
       <input type="file" id="impFile" accept="application/json,.json" hidden></div>
-    <div class="card"><h2>Rayons</h2><p>L'ordre ici est l'ordre d'affichage dans les listes.</p>${cats}
+    <div class="card"><h2>Magasins</h2><p>Chaque magasin a ses propres catégories, créées automatiquement à l'import des tickets. Touche ✎ pour les renommer, les réordonner ou les fusionner.</p>${stores}
+      <div class="row"><button class="sec" data-act="storeAdd">＋ Ajouter un magasin</button></div></div>
+    <div class="card"><h2>Rayons génériques</h2><p>Utilisés quand aucun magasin n'est choisi dans la liste. L'ordre ici est l'ordre d'affichage.</p>${cats}
       <div class="row"><button class="sec" data-act="catAdd">＋ Ajouter un rayon</button></div></div>
     <div class="card"><h2>Partage à plusieurs</h2><p>Pas encore activé : la synchronisation en temps réel sera branchée à l'étape suivante.</p></div>
     <div class="card"><h2>Zone sensible</h2><div class="row"><button class="sec danger" data-act="reset">Tout effacer</button></div></div>
@@ -364,7 +439,7 @@ const ACT = {
 
   newList() {
     const n = (prompt('Nom de la nouvelle liste ?') || '').trim(); if (!n) return;
-    const l = { id: uid(), name: n, items: [], createdAt: Date.now() };
+    const l = { id: uid(), name: n, items: [], storeId: curList().storeId || null, createdAt: Date.now() };
     S.lists.push(l); S.currentList = l.id; save(); render();
   },
   listMenu() {
@@ -392,17 +467,18 @@ const ACT = {
     const L = curList(); const got = L.items.filter(i => i.status === 'cart'); if (!got.length) return;
     if (!confirm(`${got.length} article(s) pris seront archivés dans l'historique et retirés de la liste. Continuer ?`)) return;
     const d = Date.now();
-    got.forEach(i => { const p = prodById(i.productId); S.history.push({ id: uid(), date: d, productId: i.productId, name: p ? p.name : '?', qty: i.qty, listName: L.name }); });
+    got.forEach(i => { const p = prodById(i.productId); S.history.push({ id: uid(), date: d, productId: i.productId, name: p ? p.name : '?', qty: i.qty, listName: L.name, storeId: L.storeId || null }); });
     L.items = L.items.filter(i => i.status !== 'cart'); save(); render(); toast('Courses archivées');
   },
 
   edit(id) {
     const i = curList().items.find(x => x.id === id); if (!i) return; const p = prodById(i.productId);
+    const sid = activeStore();
     modal(`<h3>${esc(p ? p.name : '?')}</h3>
       <form id="itemForm" data-id="${i.id}">
         <label>Quantité</label><input id="eQty" type="number" min="1" value="${i.qty}" inputmode="numeric">
         <label>Note (marque, taille…)</label><input id="eNote" value="${esc(i.note)}">
-        <label>Rayon</label>${catSelect('eCat', p ? p.category : 'Autre')}
+        <label>${sid ? 'Catégorie chez ' + esc(storeById(sid).name) : 'Rayon'}</label>${catSelectFor('eCat', sid, sid ? placeCat(p, sid) : (p ? p.category : 'Autre'))}
         <div class="row"><button type="button" class="sec danger" data-act="delItem" data-id="${i.id}">Retirer</button><button class="pri">Enregistrer</button></div>
       </form>`);
   },
@@ -470,36 +546,91 @@ const ACT = {
   tkCancel() { imp.review = null; render(); },
   tkValidate() {
     const R = imp.review; if (!R) return;
-    const store = R.store.trim(); if (!store) { toast('Indique le magasin'); return; }
+    const storeName = R.store.trim(); if (!storeName) { toast('Indique le magasin'); return; }
     const on = R.lines.filter(l => l.on && l.nom.trim()); if (!on.length) { toast('Aucune ligne sélectionnée'); return; }
+    const st = ensureStore(storeName); const cats0 = st.cats.length;
     const tid = uid(); const dateMs = new Date(R.date + 'T12:00:00').getTime() || Date.now();
     const lines = []; let created = 0;
     on.forEach(l => {
       let p = prodByNorm(l.nom);
-      if (!p) { p = { id: uid(), name: l.nom.trim(), category: l.cat || 'Autre', unit: l.unit || '' }; S.products.push(p); created++; }
+      const tcat = l.tcat && l.tcat.trim() ? ensureStoreCat(st, l.tcat) : '';
+      if (!p) { p = { id: uid(), name: l.nom.trim(), category: tcat ? matchCat(tcat) : 'Autre', unit: l.unit || '', place: {} }; S.products.push(p); created++; }
       else if (!p.unit && l.unit) p.unit = l.unit;
-      mapSet(store, l.label, p.id);
+      if (tcat) setPlace(p, st.id, tcat);
+      mapSet(st.name, l.label, p.id);
       lines.push({ label: l.label, productId: p.id, qty: l.qty, unitPrice: l.price, discount: l.disc, lineTotal: r2(l.qty * l.price - l.disc) });
-      S.history.push({ id: uid(), date: dateMs, productId: p.id, name: p.name, qty: l.qty, listName: 'Ticket ' + store, ticketId: tid });
+      S.history.push({ id: uid(), date: dateMs, productId: p.id, name: p.name, qty: l.qty, listName: 'Ticket ' + st.name, ticketId: tid, storeId: st.id });
     });
     const sum = r2(lines.reduce((s, l) => s + l.lineTotal, 0));
-    S.tickets.push({ id: tid, store, date: R.date, total: R.total || sum, lines });
-    save(); resetImp(); tab = 'catalog'; render();
-    toast(`${created} produit${created > 1 ? 's' : ''} créé${created > 1 ? 's' : ''}, ${lines.length} ligne${lines.length > 1 ? 's' : ''} enregistrée${lines.length > 1 ? 's' : ''}`);
+    S.tickets.push({ id: tid, store: st.name, storeId: st.id, date: R.date, total: R.total || sum, lines });
+    const newCats = st.cats.length - cats0;
+    save(); resetImp(); tab = 'catalog'; catStore = st.id; render();
+    toast(`${created} produit${created > 1 ? 's' : ''} créé${created > 1 ? 's' : ''}` + (newCats ? `, ${newCats} catégorie${newCats > 1 ? 's' : ''} pour ${st.name}` : ''));
   },
   tkDel(id) {
     if (!confirm('Supprimer ce ticket et ses achats archivés ? Les produits du catalogue sont conservés.')) return;
     S.tickets = S.tickets.filter(t => t.id !== id); S.history = S.history.filter(h => h.ticketId !== id); save(); render();
   },
 
-  close() { closeModal(); },
+  storeEdit(id) { if (!storeById(id)) return; stEdit = id; stRefresh(); },
+  storeAdd() {
+    const n = (prompt('Nom du magasin ?') || '').trim(); if (!n) return;
+    const s = ensureStore(n); save(); render(); ACT.storeEdit(s.id);
+  },
+  stRen() {
+    const s = storeById(stEdit); if (!s) return;
+    const n = (prompt('Nouveau nom ?', s.name) || '').trim(); if (!n || n === s.name) return;
+    const dup = storeByName(n); if (dup && dup.id !== s.id) { toast('Ce magasin existe déjà'); return; }
+    const ok = norm(s.name), nk = norm(n);
+    if (ok !== nk && S.labelMap[ok]) { S.labelMap[nk] = Object.assign({}, S.labelMap[nk] || {}, S.labelMap[ok]); delete S.labelMap[ok]; }
+    s.name = n; S.tickets.forEach(t => { if (t.storeId === s.id) t.store = n; });
+    save(); render(); stRefresh();
+  },
+  stDel() {
+    const s = storeById(stEdit); if (!s) return;
+    if (!confirm(`Supprimer le magasin « ${s.name} » et ses catégories ? Les tickets et les produits sont conservés.`)) return;
+    S.stores = S.stores.filter(x => x.id !== s.id);
+    S.lists.forEach(l => { if (l.storeId === s.id) l.storeId = null; });
+    S.products.forEach(p => { if (p.place) delete p.place[s.id]; });
+    if (catStore === s.id) catStore = '';
+    save(); closeModal(); render();
+  },
+  stCatAdd() {
+    const s = storeById(stEdit); if (!s) return;
+    const n = (prompt('Nom de la catégorie ?') || '').trim(); if (!n) return;
+    ensureStoreCat(s, n, true); save(); render(); stRefresh();
+  },
+  stCatRen(i) {
+    const s = storeById(stEdit); if (!s) return; i = +i; const old = s.cats[i];
+    const n = (prompt('Nouveau nom ?', old) || '').trim(); if (!n || n === old) return;
+    const dup = s.cats.findIndex((c, k) => k !== i && norm(c) === norm(n));
+    if (dup >= 0) {
+      if (!confirm(`« ${s.cats[dup]} » existe déjà : fusionner les deux catégories ?`)) return;
+      S.products.forEach(p => { if (placeCat(p, s.id) === old) setPlace(p, s.id, s.cats[dup]); });
+      s.cats.splice(i, 1);
+    } else {
+      s.cats[i] = n; S.products.forEach(p => { if (placeCat(p, s.id) === old) setPlace(p, s.id, n); });
+    }
+    save(); render(); stRefresh();
+  },
+  stCatDel(i) {
+    const s = storeById(stEdit); if (!s) return; i = +i; const c = s.cats[i];
+    if (!confirm(`Supprimer la catégorie « ${c} » ? Ses produits deviennent « sans catégorie » pour ce magasin.`)) return;
+    S.products.forEach(p => { if (placeCat(p, s.id) === c) setPlace(p, s.id, ''); });
+    s.cats.splice(i, 1); save(); render(); stRefresh();
+  },
+  stUp(i) { const s = storeById(stEdit); i = +i; if (!s || i < 1) return; [s.cats[i - 1], s.cats[i]] = [s.cats[i], s.cats[i - 1]]; save(); stRefresh(); },
+  stDown(i) { const s = storeById(stEdit); i = +i; if (!s || i >= s.cats.length - 1) return; [s.cats[i + 1], s.cats[i]] = [s.cats[i], s.cats[i + 1]]; save(); stRefresh(); },
+
+  close() { closeModal(); render(); },
 };
 
 function prodForm(p) {
   modal(`<h3>${p ? 'Modifier le produit' : 'Nouveau produit'}</h3>
     <form id="prodForm" data-id="${p ? p.id : ''}">
       <label>Nom</label><input id="pName" value="${esc(p ? p.name : '')}" required>
-      <label>Rayon</label>${catSelect('pCat', p ? p.category : 'Autre')}
+      <label>Rayon générique (sans magasin)</label>${catSelect('pCat', p ? p.category : 'Autre')}
+      ${S.stores.map(s => `<label>Catégorie chez ${esc(s.name)}</label><select id="pS_${s.id}">${storeCatOptions(s.id, placeCat(p, s.id))}</select>`).join('')}
       <label>Unité (facultatif : kg, L, boîte…)</label><input id="pUnit" value="${esc(p ? p.unit : '')}">
       <div class="row">${p ? `<button type="button" class="sec danger" data-act="delProd" data-id="${p.id}">Supprimer</button>` : '<button type="button" class="sec" data-act="close">Annuler</button>'}<button class="pri">Enregistrer</button></div>
     </form>`);
@@ -519,21 +650,25 @@ document.addEventListener('submit', e => {
   if (f.id === 'addForm') {
     const name = $('#addName').value.trim(); if (!name) return;
     const qty = Math.max(1, parseInt($('#addQty').value, 10) || 1);
+    const sid = activeStore(); const cv = $('#addCat').value;
     let p = prodByName(name);
-    if (!p) { p = { id: uid(), name, category: $('#addCat').value, unit: '' }; S.products.push(p); }
+    if (!p) { p = { id: uid(), name, category: sid ? (cv ? matchCat(cv) : 'Autre') : cv, unit: '', place: {} }; S.products.push(p); }
+    if (sid && cv && !placeCat(p, sid)) setPlace(p, sid, cv);
     addItem(p.id, qty); render(); $('#addName').focus();
   } else if (f.id === 'itemForm') {
     const i = curList().items.find(x => x.id === f.dataset.id); if (!i) return;
     i.qty = Math.max(1, parseInt($('#eQty').value, 10) || 1); i.note = $('#eNote').value.trim();
-    const p = prodById(i.productId); if (p) p.category = $('#eCat').value;
+    const p = prodById(i.productId); const sid = activeStore();
+    if (p) { const v = $('#eCat').value; if (sid) setPlace(p, sid, v); else p.category = v; }
     save(); closeModal(); render();
   } else if (f.id === 'prodForm') {
     const name = $('#pName').value.trim(); if (!name) return;
     const dup = prodByName(name);
     if (dup && dup.id !== f.dataset.id) { toast('Ce produit existe déjà'); return; }
     let p = f.dataset.id ? prodById(f.dataset.id) : null;
-    if (!p) { p = { id: uid(), name, category: 'Autre', unit: '' }; S.products.push(p); }
+    if (!p) { p = { id: uid(), name, category: 'Autre', unit: '', place: {} }; S.products.push(p); }
     p.name = name; p.category = $('#pCat').value; p.unit = $('#pUnit').value.trim();
+    S.stores.forEach(st => { const el = $('#pS_' + st.id); if (!el) return; const v = el.value; if (v || placeCat(p, st.id)) setPlace(p, st.id, v); });
     save(); closeModal(); render();
   }
 });
@@ -542,7 +677,7 @@ document.addEventListener('input', e => {
   const t = e.target;
   if (t.id === 'addName') {
     const p = prodByName(t.value);
-    if (p) { const s = $('#addCat'); if (s) s.value = p.category; }
+    if (p) { const s = $('#addCat'); if (s) { const sid = activeStore(); s.value = sid ? placeCat(p, sid) : p.category; } }
   } else if (t.id === 'catSearch') {
     catQuery = t.value; $('#catList').innerHTML = catListHtml(catQuery);
   } else if (t.id === 'tkJson') {
@@ -554,6 +689,8 @@ document.addEventListener('input', e => {
 
 document.addEventListener('change', e => {
   if (e.target.id === 'listSel') { S.currentList = e.target.value; save(); render(); }
+  else if (e.target.id === 'storeSel') { curList().storeId = e.target.value || null; save(); render(); }
+  else if (e.target.id === 'catStoreSel') { catStore = e.target.value; render(); }
   else if (e.target.id === 'tkCam' || e.target.id === 'tkFile') {
     const f = e.target.files[0]; if (!f) return;
     e.target.value = ''; loadPhoto(f);
