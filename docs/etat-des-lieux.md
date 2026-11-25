@@ -1,6 +1,6 @@
 # Appli Courses — État des lieux
 
-Mis à jour : 25/11/2026 — appli en v2.0
+Mis à jour : 25/11/2026 — appli en v2.1
 
 ## Terminé
 - Cahier des charges v0.1 rédigé.
@@ -14,6 +14,14 @@ Mis à jour : 25/11/2026 — appli en v2.0
   - « Terminer les courses » : archive les articles pris dans l'historique
   - suggestions : produits achetés au moins 2 fois, pas encore sur la liste
   - export / import JSON, mode hors ligne, installable (PWA)
+- v2.1 — Consigne et import ajustés sur de vrais tickets (U et Intermarché) :
+  - l'enseigne est lue sur le logo ; le nom imprimé (« SELONGEY », « SAS SOFRALDI ») est mémorisé comme alias, donc reconnu automatiquement ensuite
+  - date de l'achat cherchée en bas du ticket (promotions « Du … au … » ignorées) ; à défaut, date lue dans le nom du fichier
+  - produits répétés sur plusieurs lignes regroupés (quantités et remises additionnées)
+  - remises imprimées à part (« 2EME A -50% ») rattachées au produit
+  - total = total du ticket, pas le montant payé avec un seul moyen de paiement
+  - ticket sans catégories imprimées (Intermarché) : l'IA propose un rayon parmi les rayons génériques, signalé « catégorie proposée » à la vérification et modifiable
+  - vérifié sur les deux tickets : les totaux tombent au centime (93,13 € et 287,83 €)
 - v2.0 — Magasins et catégories par magasin :
   - l'IA recopie la catégorie imprimée sur le ticket pour chaque ligne ; l'appli crée le magasin et ses catégories toute seule
   - chaque magasin (U, Leclerc, Intermarché, Carrefour…) a ses propres catégories, que l'on peut renommer, réordonner, fusionner ou supprimer (Réglages → Magasins)
@@ -36,7 +44,7 @@ Mis à jour : 25/11/2026 — appli en v2.0
 - Test de l'appli sur le téléphone (mise en ligne GitHub Pages à faire).
 
 ## À faire
-- Tester la v2.0 avec de vrais tickets (U, puis un autre magasin) et ajuster la consigne si l'IA se trompe de catégorie.
+- Tester la v2.1 avec Gemini sur les vrais tickets et ajuster la consigne selon ce que l'IA renvoie ; tester Leclerc et Carrefour.
 - V1 (suite) : partage en temps réel (Firebase) — créer le projet gratuit, brancher la synchronisation dans save().
 - Mettre en ligne sur GitHub Pages et tester l'installation sur le téléphone.
 - V2 : mode « En courses » dédié.

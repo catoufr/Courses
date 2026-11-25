@@ -2,7 +2,7 @@
 /* Appli Courses — V1 (local, hors ligne). La synchronisation viendra se brancher dans save(). */
 
 const KEY = 'courses.v1';
-const APP_VERSION = '2.0';
+const APP_VERSION = '2.1';
 const DEFAULT_CATS = ['Fruits et légumes', 'Boucherie / poisson', 'Crèmerie / frais', 'Boulangerie',
   'Épicerie', 'Boissons', 'Surgelés', 'Hygiène / entretien', 'Autre'];
 
@@ -34,11 +34,11 @@ function migrate(d) {
     let st = t.storeId && s.stores.find(x => x.id === t.storeId);
     if (!st && t.store) {
       const k = norm(t.store); st = s.stores.find(x => norm(x.name) === k);
-      if (!st) { st = { id: uid(), name: t.store, cats: [] }; s.stores.push(st); }
+      if (!st) { st = { id: uid(), name: t.store, cats: [], aliases: [] }; s.stores.push(st); }
       t.storeId = st.id;
     }
   });
-  s.stores.forEach(st => { if (!Array.isArray(st.cats)) st.cats = []; });
+  s.stores.forEach(st => { if (!Array.isArray(st.cats)) st.cats = []; if (!Array.isArray(st.aliases)) st.aliases = []; });
   s.lists.forEach(l => { if (!l.storeId || !s.stores.some(x => x.id === l.storeId)) l.storeId = null; });
   s.schema = 2;
   return s;
@@ -65,8 +65,8 @@ const orderedCats = used => [...S.categories, ...used.filter(c => !S.categories.
 
 /* Magasins : chaque magasin a ses catégories (celles du ticket). product.place[storeId] = { cat: catégorie du ticket, aisle: rayon réel (réservé au plan du magasin) } */
 const storeById = id => (id && S.stores.find(s => s.id === id)) || null;
-const storeByName = n => { const k = norm(n); return k ? S.stores.find(s => norm(s.name) === k) || null : null; };
-function ensureStore(name) { let s = storeByName(name); if (!s) { s = { id: uid(), name: String(name).trim(), cats: [] }; S.stores.push(s); } return s; }
+const storeByName = n => { const k = norm(n); if (!k) return null; return S.stores.find(s => norm(s.name) === k) || S.stores.find(s => (s.aliases || []).some(a => norm(a) === k)) || null; };
+function ensureStore(name) { let s = storeByName(name); if (!s) { s = { id: uid(), name: String(name).trim(), cats: [], aliases: [] }; S.stores.push(s); } return s; }
 function ensureStoreCat(s, name, literal) {
   const k = norm(name); if (!k) return '';
   const ex = s.cats.find(c => norm(c) === k); if (ex) return ex;
@@ -141,10 +141,25 @@ async function copyText(t) {
 }
 
 // Consignes à donner à l'IA (Gemini ou Claude) avec la photo du ticket.
+function parseDate(v) {
+  const t = String(v || '').trim(); let m, y, mo, d;
+  if ((m = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/))) { y = m[1]; mo = m[2]; d = m[3]; }
+  else if ((m = t.match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{4}|\d{2})(?!\d)/))) { d = m[1]; mo = m[2]; y = m[3].length === 2 ? '20' + m[3] : m[3]; }
+  else return '';
+  if (+mo < 1 || +mo > 12 || +d < 1 || +d > 31) return '';
+  return `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+}
+// Les eTickets téléchargés portent souvent la date dans le nom du fichier (ex. Ticket_de_caisse_27072026-185033.pdf).
+function fileDate(name) {
+  const m = String(name || '').match(/(?<!\d)(\d{2})[-_.]?(\d{2})[-_.]?(20\d{2})(?!\d)/);
+  return m ? parseDate(`${m[1]}/${m[2]}/${m[3]}`) : '';
+}
+
 function buildPrompt() {
-  return `Tu reçois la photo ou le PDF d'un ticket de caisse. Extrais-en les informations et réponds UNIQUEMENT avec un bloc de code \`\`\`json contenant un JSON valide, sans aucun texte avant ni après (le bloc de code est indispensable : il permet de copier la réponse en un clic), de cette forme :
+  return `Tu reçois la photo ou le PDF d'un ticket de caisse de supermarché. Extrais-en les informations et réponds UNIQUEMENT avec un bloc de code \`\`\`json contenant un JSON valide, sans aucun texte avant ni après (le bloc de code est indispensable : il permet de copier la réponse en un clic), de cette forme :
 {
-  "magasin": "enseigne seule, sans ville ni type de magasin (ex. U, Leclerc, Intermarché, Carrefour)",
+  "magasin": "enseigne du supermarché",
+  "magasin_imprime": "nom imprimé en texte en haut du ticket",
   "date": "AAAA-MM-JJ",
   "total": 0.00,
   "lignes": [
@@ -155,17 +170,23 @@ function buildPrompt() {
       "unite": "",
       "prix_unitaire": 0.00,
       "remise": 0.00,
-      "categorie": "titre de catégorie imprimé sur le ticket pour cette ligne, ou null"
+      "categorie": "titre de catégorie imprimé sur le ticket pour cette ligne, ou une catégorie proposée",
+      "categorie_source": "ticket"
     }
   ]
 }
 Règles :
-- Une entrée par produit acheté. Ignore les lignes de total, TVA, paiement et points fidélité.
+- "magasin" : la marque de l'enseigne (ex. U, Leclerc, Intermarché, Carrefour). Elle est souvent seulement dans le logo ou dans les marques maison : déduis-la, ne recopie pas le nom de la ville ni de la société. "magasin_imprime" : le nom imprimé en texte en haut du ticket (ville, société…), recopié tel quel.
+- "date" : la date de l'achat, au format AAAA-MM-JJ. Elle est souvent en petits caractères tout en bas du ticket, avec l'heure (ex. 27/07/26 18:50:28). Ignore les périodes de promotion ou de validité (« Du … au … »). Si elle est introuvable, mets null.
+- Une entrée par produit acheté. Ignore : totaux, TVA, moyens de paiement, rendu monnaie, vignettes ou points de fidélité, éco-participations, lignes d'information.
+- Si le même produit apparaît sur plusieurs lignes, regroupe-les en une seule entrée avec la quantité totale.
+- "nom" : nom lisible du produit, abréviations développées quand tu en es sûr. "designation" : le libellé abrégé exact du ticket.
 - "quantite" : nombre d'articles, ou poids en kg si le produit est vendu au poids (alors "unite" vaut "kg"). Sinon laisse "unite" vide.
-- "prix_unitaire" : prix TTC d'une unité (ou du kilo), avant remise, en euros, avec un point décimal.
-- "remise" : avantage carte, promotion ou réduction liée à ce produit, en nombre positif (0 s'il n'y en a pas). Si la remise est imprimée sur une ligne séparée, rattache-la au produit concerné.
-- "categorie" : beaucoup de tickets regroupent les produits sous des titres (rayons, familles de produits). Recopie exactement, pour chaque ligne, le titre sous lequel elle est imprimée (répète-le pour toutes les lignes du groupe). Si le ticket n'imprime aucune catégorie, mets null : n'en invente jamais.
-- "total" : le montant total payé inscrit sur le ticket.
+- "prix_unitaire" : le montant imprimé à droite d'une ligne est le TOTAL de la ligne. Donne le prix d'UNE unité TTC (ex. « 2 x 1,19 » → 1,19 ; au poids : le prix au kilo, ex. « 0,158 kg x 17,49 €/kg » → quantité 0,158 et prix 17,49), avant remise, avec un point décimal.
+- "remise" : réduction liée à ce produit, en nombre positif (0 s'il n'y en a pas). Les remises sont souvent imprimées sur des lignes séparées, parfois à la fin du ticket (ex. « 2EME A -50% MARQUE ») : rattache-les au produit concerné.
+- "categorie" : beaucoup de tickets regroupent les produits sous des titres (rayons, familles de produits). Recopie exactement, pour chaque ligne, le titre sous lequel elle est imprimée (répète-le pour toutes les lignes du groupe) et mets "categorie_source" à "ticket".
+- Si le ticket n'imprime AUCUN titre de catégorie, choisis pour chaque ligne la plus adaptée parmi : ${S.categories.filter(c => c !== 'Autre').join(' | ')} | Autre, et mets "categorie_source" à "propose". N'invente jamais de catégorie quand le ticket en imprime.
+- "total" : le total TTC du ticket après remises (ex. « TOTAL », « MONTANT DU », « TOTAL À PAYER »). Ce n'est ni le montant d'un seul moyen de paiement (CB, titres-restaurant, espèces) ni le nombre d'articles.
 - Si une information est illisible, mets null plutôt que d'inventer.`;
 }
 
@@ -180,25 +201,35 @@ function parseTicket(txt) {
 }
 
 function buildReview(d) {
-  const store = String(d.magasin || '').trim();
-  const st = storeByName(store);
-  const lines = d.lignes.map(l => {
+  const m1 = String(d.magasin || '').trim(), m2 = String(d.magasin_imprime || '').trim();
+  const st = storeByName(m1) || storeByName(m2);
+  const store = st ? st.name : (m1 || m2);
+  const printed = [m1, m2].filter(Boolean);
+  const raw = d.lignes.map(l => {
     const label = String(l.designation || l.nom || '').trim();
     const nom = String(l.nom || l.designation || '').trim();
     const mapped = mapGet(store, label);
     const p = (mapped && prodById(mapped)) || prodByNorm(nom);
-    const raw = String(l.categorie ?? l.categorie_ticket ?? l.rayon ?? '').trim();
-    const tc = /^(null|undefined|-)$/i.test(raw) ? '' : raw;
+    const rc = String(l.categorie ?? l.categorie_ticket ?? l.rayon ?? '').trim();
+    const tc = /^(null|undefined|-)$/i.test(rc) ? '' : rc;
+    let proposed = String(l.categorie_source || '').toLowerCase() === 'propose';
     let tcat = '';
     if (tc) { const ex = st && st.cats.find(c => norm(c) === norm(tc)); tcat = ex || pretty(tc); }
-    else if (p && st) tcat = placeCat(p, st.id);
+    if (p && st && placeCat(p, st.id) && (!tc || proposed)) { tcat = placeCat(p, st.id); proposed = false; } // une catégorie déjà connue chez ce magasin prime sur une proposition
     return {
-      on: true, label, nom: p ? p.name : nom, tcat,
+      on: true, label, nom: p ? p.name : nom, tcat, proposed: !!(proposed && tcat),
       qty: num(l.quantite) || 1, unit: String(l.unite || '').trim(), price: num(l.prix_unitaire), disc: Math.abs(num(l.remise)),
     };
   });
-  const date = /^\d{4}-\d{2}-\d{2}$/.test(String(d.date || '')) ? d.date : today();
-  return { store, date, total: num(d.total), lines };
+  // Un même produit imprimé sur plusieurs lignes est regroupé (quantités et remises additionnées).
+  const lines = [], idx = {};
+  raw.forEach(l => {
+    const k = norm(l.label || l.nom) + '|' + l.price + '|' + norm(l.unit);
+    if (idx[k] != null) { const m = lines[idx[k]]; m.qty = Math.round((m.qty + l.qty) * 1000) / 1000; m.disc = r2(m.disc + l.disc); if (!m.tcat && l.tcat) { m.tcat = l.tcat; m.proposed = l.proposed; } }
+    else { idx[k] = lines.length; lines.push(l); }
+  });
+  const date = parseDate(d.date) || imp.fileDate || today();
+  return { store, printed, date, total: num(d.total), lines };
 }
 
 function shrinkImage(file, max = 2200) {
@@ -221,7 +252,7 @@ async function loadPhoto(f) {
   if (!pdf && !/^image\//.test(f.type || '') && !/\.(jpe?g|png|webp|heic|heif|gif|bmp)$/i.test(f.name || '')) { toast('Fichier non pris en charge : choisis un PDF ou une image'); return; }
   const out = pdf ? f : await shrinkImage(f);
   if (imp.photo) URL.revokeObjectURL(imp.photo);
-  imp.photoFile = out; imp.photo = pdf ? null : URL.createObjectURL(out); imp.isPdf = pdf; imp.fileName = f.name || 'ticket.pdf';
+  imp.photoFile = out; imp.photo = pdf ? null : URL.createObjectURL(out); imp.isPdf = pdf; imp.fileName = f.name || 'ticket.pdf'; imp.fileDate = fileDate(f.name);
   render();
 }
 
@@ -238,8 +269,8 @@ async function checkClipboardForTicket() {
 }
 
 /* ---------- Vues ---------- */
-let imp = { photo: null, photoFile: null, isPdf: false, fileName: '', review: null, json: '', error: '', waiting: false };
-function resetImp() { if (imp.photo) URL.revokeObjectURL(imp.photo); imp = { photo: null, photoFile: null, isPdf: false, fileName: '', review: null, json: '', error: '', waiting: false }; }
+let imp = { photo: null, photoFile: null, isPdf: false, fileName: '', fileDate: '', review: null, json: '', error: '', waiting: false };
+function resetImp() { if (imp.photo) URL.revokeObjectURL(imp.photo); imp = { photo: null, photoFile: null, isPdf: false, fileName: '', fileDate: '', review: null, json: '', error: '', waiting: false }; }
 
 function render() {
   const av = $('#appVer'); if (av) av.textContent = 'v' + APP_VERSION;
@@ -364,7 +395,7 @@ function viewReview() {
   const rows = R.lines.map((l, i) => {
     const p = prodByNorm(l.nom);
     return `<div class="rl ${l.on ? '' : 'off'}">
-      <label class="rhead"><input type="checkbox" data-rf="on" data-i="${i}" ${l.on ? 'checked' : ''}><span class="lab">${esc(l.label)}</span><span class="badge ${p ? 'ok' : 'new'}">${p ? 'existe' : 'nouveau'}</span></label>
+      <label class="rhead"><input type="checkbox" data-rf="on" data-i="${i}" ${l.on ? 'checked' : ''}><span class="lab">${esc(l.label)}</span>${l.proposed ? '<span class="badge prop">catégorie proposée</span>' : ''}<span class="badge ${p ? 'ok' : 'new'}">${p ? 'existe' : 'nouveau'}</span></label>
       <div class="rgrid">
         <input class="full" data-rf="nom" data-i="${i}" value="${esc(l.nom)}" placeholder="Nom du produit">
         <input class="full" data-rf="tcat" data-i="${i}" list="tcatList" value="${esc(l.tcat)}" placeholder="Catégorie du ticket (vide si aucune)">
@@ -549,6 +580,8 @@ const ACT = {
     const storeName = R.store.trim(); if (!storeName) { toast('Indique le magasin'); return; }
     const on = R.lines.filter(l => l.on && l.nom.trim()); if (!on.length) { toast('Aucune ligne sélectionnée'); return; }
     const st = ensureStore(storeName); const cats0 = st.cats.length;
+    st.aliases = st.aliases || [];
+    (R.printed || []).forEach(n => { const o = storeByName(n); if (norm(n) && norm(n) !== norm(st.name) && !o) st.aliases.push(n.trim()); });
     const tid = uid(); const dateMs = new Date(R.date + 'T12:00:00').getTime() || Date.now();
     const lines = []; let created = 0;
     on.forEach(l => {

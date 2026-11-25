@@ -1,6 +1,6 @@
 # Appli Courses — Cahier des charges
 
-Version 0.2 — 25/11/2026
+Version 0.3 — 25/11/2026
 
 ## 1. Objectif
 
@@ -49,6 +49,8 @@ Usage personnel et familial, gratuit, sans compte obligatoire.
 - Un produit a, pour chaque magasin, une **catégorie du ticket** et un **rayon réel** (emplacement physique). Les deux sont distincts : deux produits d'une même catégorie peuvent être dans deux rayons différents.
 - Une liste peut être rattachée à un magasin : les articles sont alors rangés selon les catégories de ce magasin.
 - Sans magasin choisi : rayons génériques personnels.
+- Si un ticket n'imprime aucune catégorie (cas d'Intermarché), l'IA propose un rayon parmi les rayons génériques, signalé comme « proposé » et modifiable.
+- Le nom du magasin est déduit du logo ; le nom imprimé (ville, société) est mémorisé comme alias.
 - Le rayon réel sera utilisé par le plan du magasin (V4).
 
 ### V2 — Mode « En courses »
