@@ -2,7 +2,7 @@
 /* Appli Courses — V1 (local, hors ligne). La synchronisation viendra se brancher dans save(). */
 
 const KEY = 'courses.v1';
-const APP_VERSION = '1.4 (25/11/2026)';
+const APP_VERSION = '1.5';
 const DEFAULT_CATS = ['Fruits et légumes', 'Boucherie / poisson', 'Crèmerie / frais', 'Boulangerie',
   'Épicerie', 'Boissons', 'Surgelés', 'Hygiène / entretien', 'Autre'];
 
@@ -193,6 +193,7 @@ let imp = { photo: null, photoFile: null, isPdf: false, fileName: '', review: nu
 function resetImp() { if (imp.photo) URL.revokeObjectURL(imp.photo); imp = { photo: null, photoFile: null, isPdf: false, fileName: '', review: null, json: '', error: '', waiting: false }; }
 
 function render() {
+  const av = $('#appVer'); if (av) av.textContent = 'v' + APP_VERSION;
   document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
   const v = $('#view');
   v.innerHTML = tab === 'lists' ? viewLists() : tab === 'catalog' ? viewCatalog() : tab === 'tickets' ? viewTickets() : viewData();
@@ -352,7 +353,7 @@ function viewData() {
       <div class="row"><button class="sec" data-act="catAdd">＋ Ajouter un rayon</button></div></div>
     <div class="card"><h2>Partage à plusieurs</h2><p>Pas encore activé : la synchronisation en temps réel sera branchée à l'étape suivante.</p></div>
     <div class="card"><h2>Zone sensible</h2><div class="row"><button class="sec danger" data-act="reset">Tout effacer</button></div></div>
-    <p class="empty">${S.products.length} produits · ${S.history.length} achats archivés<br>Version de l'appli : ${APP_VERSION}</p>`;
+    <p class="empty">${S.products.length} produits · ${S.history.length} achats archivés<br>Version de l'appli : v${APP_VERSION}</p>`;
 }
 
 /* ---------- Actions ---------- */

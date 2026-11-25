@@ -1,4 +1,4 @@
-const C = 'courses-v6';
+const C = 'courses-v7';
 const FILES = ['./', 'index.html', 'style.css', 'app.js', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', e => {
