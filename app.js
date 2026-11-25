@@ -2,6 +2,7 @@
 /* Appli Courses — V1 (local, hors ligne). La synchronisation viendra se brancher dans save(). */
 
 const KEY = 'courses.v1';
+const APP_VERSION = '1.3 (25/11/2026)';
 const DEFAULT_CATS = ['Fruits et légumes', 'Boucherie / poisson', 'Crèmerie / frais', 'Boulangerie',
   'Épicerie', 'Boissons', 'Surgelés', 'Hygiène / entretien', 'Autre'];
 
@@ -168,6 +169,7 @@ function shrinkImage(file, max = 2200) {
 }
 async function loadPhoto(f) {
   const pdf = f.type === 'application/pdf' || /\.pdf$/i.test(f.name || '');
+  if (!pdf && !/^image\//.test(f.type || '') && !/\.(jpe?g|png|webp|heic|heif|gif|bmp)$/i.test(f.name || '')) { toast('Fichier non pris en charge : choisis un PDF ou une image'); return; }
   const out = pdf ? f : await shrinkImage(f);
   if (imp.photo) URL.revokeObjectURL(imp.photo);
   imp.photoFile = out; imp.photo = pdf ? null : URL.createObjectURL(out); imp.isPdf = pdf; imp.fileName = f.name || 'ticket.pdf';
@@ -270,7 +272,7 @@ function viewTickets() {
   return `<div class="card"><h2>Ticket de caisse</h2>
       <p>Prends le ticket en photo, ou choisis un fichier : image ou PDF (eTicket téléchargé depuis l'appli du magasin). Les images sont réduites avant l'envoi à l'IA.</p>
       <input type="file" id="tkCam" accept="image/*" capture="environment" hidden>
-      <input type="file" id="tkFile" accept="image/*,application/pdf,.pdf" hidden>
+      <input type="file" id="tkFile" hidden>
       <div class="row"><button class="pri" data-act="tkCam">📷 Photo</button><button class="sec" data-act="tkFile">📄 Fichier (PDF, image)</button></div>
       ${imp.isPdf ? `<p class="tkpdf">📄 ${esc(imp.fileName)}</p>` : imp.photo ? `<img class="tkimg" src="${imp.photo}" alt="Ticket">` : ''}</div>
     <div class="card"><h2>Lire le ticket avec une IA</h2>
@@ -350,7 +352,7 @@ function viewData() {
       <div class="row"><button class="sec" data-act="catAdd">＋ Ajouter un rayon</button></div></div>
     <div class="card"><h2>Partage à plusieurs</h2><p>Pas encore activé : la synchronisation en temps réel sera branchée à l'étape suivante.</p></div>
     <div class="card"><h2>Zone sensible</h2><div class="row"><button class="sec danger" data-act="reset">Tout effacer</button></div></div>
-    <p class="empty">${S.products.length} produits · ${S.history.length} achats archivés</p>`;
+    <p class="empty">${S.products.length} produits · ${S.history.length} achats archivés<br>Version de l'appli : ${APP_VERSION}</p>`;
 }
 
 /* ---------- Actions ---------- */
