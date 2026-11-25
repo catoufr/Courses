@@ -2,7 +2,7 @@
 /* Appli Courses — V1 (local, hors ligne). La synchronisation viendra se brancher dans save(). */
 
 const KEY = 'courses.v1';
-const APP_VERSION = '1.3 (25/11/2026)';
+const APP_VERSION = '1.4 (25/11/2026)';
 const DEFAULT_CATS = ['Fruits et légumes', 'Boucherie / poisson', 'Crèmerie / frais', 'Boulangerie',
   'Épicerie', 'Boissons', 'Surgelés', 'Hygiène / entretien', 'Autre'];
 
@@ -99,7 +99,7 @@ async function copyText(t) {
 
 // Consignes à donner à l'IA (Gemini ou Claude) avec la photo du ticket.
 function buildPrompt() {
-  return `Tu reçois la photo ou le PDF d'un ticket de caisse. Extrais-en les informations et réponds UNIQUEMENT avec un JSON valide (sans texte autour, sans balises de code), de cette forme :
+  return `Tu reçois la photo ou le PDF d'un ticket de caisse. Extrais-en les informations et réponds UNIQUEMENT avec un bloc de code \`\`\`json contenant un JSON valide, sans aucun texte avant ni après (le bloc de code est indispensable : il permet de copier la réponse en un clic), de cette forme :
 {
   "magasin": "nom de l'enseigne",
   "date": "AAAA-MM-JJ",
