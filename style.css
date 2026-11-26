@@ -94,3 +94,6 @@ header{display:flex;align-items:center;justify-content:space-between}
 
 .badge.prop{background:none;border:1px dashed var(--mute);color:var(--mute)}
 .rhead{flex-wrap:wrap}
+
+.hint,.note{color:var(--mute);font-size:.85rem;margin:-4px 2px 10px}
+.note{margin:4px 0 8px}

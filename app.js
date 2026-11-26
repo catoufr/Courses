@@ -2,22 +2,55 @@
 /* Appli Courses — V1 (local, hors ligne). La synchronisation viendra se brancher dans save(). */
 
 const KEY = 'courses.v1';
-const APP_VERSION = '2.1';
-const DEFAULT_CATS = ['Fruits et légumes', 'Boucherie / poisson', 'Crèmerie / frais', 'Boulangerie',
+const APP_VERSION = '3.0';
+const DEFAULT_CATS = ['Fruits et légumes', 'Boucherie / volaille', 'Poissonnerie', 'Charcuterie / traiteur', 'Crèmerie / frais',
+  'Boulangerie / viennoiserie', 'Épicerie salée', 'Épicerie sucrée', 'Surgelés', 'Boissons sans alcool', 'Alcools', 'Bébé / enfant',
+  'Hygiène / beauté', 'Entretien / ménage', 'Maison / bazar', 'Bricolage / outillage', 'Textile', 'Animaux', 'Autre'];
+// Liste des versions 1 et 2 : reconnue à la migration pour reporter les produits dans les nouvelles catégories.
+const OLD_DEFAULT_CATS = ['Fruits et légumes', 'Boucherie / poisson', 'Crèmerie / frais', 'Boulangerie',
   'Épicerie', 'Boissons', 'Surgelés', 'Hygiène / entretien', 'Autre'];
+const OLD_TO_NEW = { 'Boucherie / poisson': 'Boucherie / volaille', 'Boulangerie': 'Boulangerie / viennoiserie', 'Épicerie': 'Épicerie salée', 'Boissons': 'Boissons sans alcool', 'Hygiène / entretien': 'Hygiène / beauté' };
 
 const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const $ = (s, r = document) => r.querySelector(s);
 const norm = s => String(s == null ? '' : s).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+const CAT_RULES = [
+  [/vetement|textile|chaussette|chaussure|maillot|shorty|lingerie/, 'Textile'],
+  [/bebe|puericult|couche|enfant|infantile/, 'Bébé / enfant'],
+  [/hygiene|beaute|\bsoin|toilette|coton|shampo|savon|dentifrice|deodorant|douche|feminin|rasoir/, 'Hygiène / beauté'],
+  [/entretien|menage|vaisselle|lessive|nettoy|adoucissant|essuie|sac poubelle|droguerie/, 'Entretien / ménage'],
+  [/alcool|\bvins?\b|biere|spiritueux|whisky|rhum|apero|champagne|cidre/, 'Alcools'],
+  [/\beaux?\b|\bjus\b|soda|sirop|boisson|limonade|\bthe\b|\bcafe\b/, 'Boissons sans alcool'],
+  [/surgel|\bglaces?\b/, 'Surgelés'],
+  [/charc|traiteur|saucisson|jambon|pate de foie|rillette|\bfoie\b/, 'Charcuterie / traiteur'],
+  [/poisson|maree|crevette|saumon|surimi/, 'Poissonnerie'],
+  [/boucher|viande|volaille|poulet|boeuf|\bporc\b|steak|nugget/, 'Boucherie / volaille'],
+  [/fruit|legume|salade|tomate|pomme|banane/, 'Fruits et légumes'],
+  [/boulang|viennois|\bpain\b|baguette|brioche/, 'Boulangerie / viennoiserie'],
+  [/cremerie|laitier|fromage|yaourt|ultra frais|\bfrais\b|beurre|oeuf|creme|dessert|\blait\b/, 'Crèmerie / frais'],
+  [/biscuit|chocolat|confiserie|bonbon|sucre|confiture|petit.?dej|cereale|gateau|patisserie/, 'Épicerie sucrée'],
+  [/epicerie|conserve|\bpates?\b|\briz\b|sauce|huile|condiment|\bplats?\b|farine|chips/, 'Épicerie salée'],
+  [/bricolage|outil|jardin|quincaillerie|peinture/, 'Bricolage / outillage'],
+  [/animaux|chien|\bchat\b|croquette/, 'Animaux'],
+  [/bazar|maison|jouet|papeterie|cuisine|decoration/, 'Maison / bazar'],
+];
+// Devine une catégorie à partir d'un texte (titre de ticket, libellé…), parmi celles qui existent.
+function guessCategory(text, cats) {
+  const k = norm(text); if (!k) return '';
+  const r = CAT_RULES.find(([re, c]) => re.test(k) && cats.includes(c));
+  return r ? r[1] : '';
+}
+const sameList = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
 const pretty = s => { s = String(s || '').trim(); return (s && s === s.toUpperCase() && s !== s.toLowerCase()) ? s.charAt(0) + s.slice(1).toLowerCase() : s; };
 
 /* ---------- Données ---------- */
 function fresh() {
   const l = { id: uid(), name: 'Courses', items: [], storeId: null, createdAt: Date.now() };
-  return { schema: 2, categories: [...DEFAULT_CATS], stores: [], products: [], lists: [l], currentList: l.id, history: [], tickets: [], labelMap: {}, updatedAt: Date.now() };
+  return { schema: 3, categories: [...DEFAULT_CATS], stores: [], products: [], lists: [l], currentList: l.id, history: [], tickets: [], labelMap: {}, updatedAt: Date.now() };
 }
 function migrate(d) {
+  const from = Number(d && d.schema) || 1;
   const s = Object.assign(fresh(), d);
   if (!Array.isArray(s.lists) || !s.lists.length) { const f = fresh(); s.lists = f.lists; s.currentList = f.currentList; }
   if (!s.lists.some(l => l.id === s.currentList)) s.currentList = s.lists[0].id;
@@ -28,19 +61,33 @@ function migrate(d) {
   if (!Array.isArray(s.tickets)) s.tickets = [];
   if (!Array.isArray(s.stores)) s.stores = [];
   if (!s.labelMap || typeof s.labelMap !== 'object') s.labelMap = {};
-  // v2 : catégories propres à chaque magasin (product.place[storeId] = { cat, aisle })
   s.products.forEach(p => { if (!p.place || typeof p.place !== 'object') p.place = {}; });
   s.tickets.forEach(t => {
     let st = t.storeId && s.stores.find(x => x.id === t.storeId);
     if (!st && t.store) {
       const k = norm(t.store); st = s.stores.find(x => norm(x.name) === k);
-      if (!st) { st = { id: uid(), name: t.store, cats: [], aliases: [] }; s.stores.push(st); }
+      if (!st) { st = { id: uid(), name: t.store, aliases: [] }; s.stores.push(st); }
       t.storeId = st.id;
     }
   });
-  s.stores.forEach(st => { if (!Array.isArray(st.cats)) st.cats = []; if (!Array.isArray(st.aliases)) st.aliases = []; });
+  // v3 : catégories communes à tous les magasins. Les catégories par magasin de la v2 sont abandonnées ;
+  // le rayon réel (place[storeId].aisle) est conservé, vide, pour le futur plan du magasin.
+  if (from < 3) {
+    if (sameList(s.categories, OLD_DEFAULT_CATS)) {
+      s.products.forEach(p => { if (OLD_TO_NEW[p.category]) p.category = OLD_TO_NEW[p.category]; });
+      s.categories = [...DEFAULT_CATS];
+    }
+    s.products.forEach(p => {
+      if (!p.category || p.category === 'Autre') {
+        const old = Object.values(p.place || {}).map(x => x && x.cat).find(Boolean);
+        const g = old && guessCategory(old, s.categories); if (g) p.category = g;
+      }
+      Object.keys(p.place).forEach(k => { const a = p.place[k] && p.place[k].aisle; p.place[k] = { aisle: a || '' }; });
+    });
+  }
+  s.stores.forEach(st => { delete st.cats; if (!Array.isArray(st.aliases)) st.aliases = []; });
   s.lists.forEach(l => { if (!l.storeId || !s.stores.some(x => x.id === l.storeId)) l.storeId = null; });
-  s.schema = 2;
+  s.schema = 3;
   return s;
 }
 function load() {
@@ -50,7 +97,6 @@ function load() {
 let S = load();
 let tab = 'lists';
 let catQuery = '';
-let catStore = '';
 let stEdit = null;
 
 function save() {
@@ -63,29 +109,12 @@ const prodById = id => S.products.find(p => p.id === id);
 const prodByName = n => S.products.find(p => p.name.toLowerCase() === n.trim().toLowerCase());
 const orderedCats = used => [...S.categories, ...used.filter(c => !S.categories.includes(c))];
 
-/* Magasins : chaque magasin a ses catégories (celles du ticket). product.place[storeId] = { cat: catégorie du ticket, aisle: rayon réel (réservé au plan du magasin) } */
+/* Magasins : nom + alias (noms imprimés sur les tickets). Les rayons de chaque magasin (product.place[storeId].aisle) viendront avec le plan. */
 const storeById = id => (id && S.stores.find(s => s.id === id)) || null;
 const storeByName = n => { const k = norm(n); if (!k) return null; return S.stores.find(s => norm(s.name) === k) || S.stores.find(s => (s.aliases || []).some(a => norm(a) === k)) || null; };
-function ensureStore(name) { let s = storeByName(name); if (!s) { s = { id: uid(), name: String(name).trim(), cats: [], aliases: [] }; S.stores.push(s); } return s; }
-function ensureStoreCat(s, name, literal) {
-  const k = norm(name); if (!k) return '';
-  const ex = s.cats.find(c => norm(c) === k); if (ex) return ex;
-  const n = literal ? String(name).trim() : pretty(name); s.cats.push(n); return n;
-}
-const placeCat = (p, sid) => (p && sid && p.place && p.place[sid] && p.place[sid].cat) || '';
-function setPlace(p, sid, cat) { p.place = p.place || {}; const cur = p.place[sid] || { cat: '', aisle: '' }; cur.cat = cat; p.place[sid] = cur; }
-function genericCat(p) {
-  if (p.category && p.category !== 'Autre') return p.category;
-  return Object.values(p.place || {}).map(x => x && x.cat).find(Boolean) || 'Autre';
-}
+function ensureStore(name) { let s = storeByName(name); if (!s) { s = { id: uid(), name: String(name).trim(), aliases: [] }; S.stores.push(s); } return s; }
 const activeStore = () => { const l = curList(); return l && l.storeId && storeById(l.storeId) ? l.storeId : null; };
-const groupOf = (p, sid) => sid ? (placeCat(p, sid) || 'Sans catégorie') : genericCat(p);
-function orderedGroups(sid, used) {
-  if (!sid) return orderedCats(used);
-  const base = [...storeById(sid).cats];
-  used.forEach(c => { if (c !== 'Sans catégorie' && !base.includes(c)) base.push(c); });
-  return base.concat('Sans catégorie');
-}
+const groupOf = p => p.category || 'Autre';
 
 function addItem(pid, qty) {
   const L = curList();
@@ -113,8 +142,6 @@ function toast(msg) {
 }
 function modal(html) { const m = $('#modal'); m.innerHTML = `<div class="sheet">${html}</div>`; m.hidden = false; }
 function closeModal() { const m = $('#modal'); m.hidden = true; m.innerHTML = ''; }
-const storeCatOptions = (sid, sel) => '<option value="">(sans catégorie)</option>' + (storeById(sid) ? storeById(sid).cats : []).map(c => `<option ${c === sel ? 'selected' : ''}>${esc(c)}</option>`).join('');
-const catSelectFor = (id, sid, sel) => sid ? `<select id="${id}">${storeCatOptions(sid, sel)}</select>` : catSelect(id, sel);
 const catSelect = (id, sel) => `<select id="${id}">${S.categories.map(c => `<option ${c === sel ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>`;
 
 /* ---------- Tickets de caisse : outils ---------- */
@@ -127,7 +154,7 @@ const mapGet = (store, label) => { const m = S.labelMap[norm(store)]; const id =
 const mapSet = (store, label, pid) => { const s = norm(store), l = norm(label); if (!s || !l) return; (S.labelMap[s] = S.labelMap[s] || {})[l] = pid; };
 function matchCat(r) {
   const k = norm(r); if (!k) return 'Autre';
-  return S.categories.find(c => norm(c) === k) || S.categories.find(c => norm(c).includes(k) || k.includes(norm(c))) || 'Autre';
+  return S.categories.find(c => norm(c) === k) || S.categories.find(c => norm(c).includes(k) || k.includes(norm(c))) || guessCategory(r, S.categories) || 'Autre';
 }
 function lastPrices() {
   const out = {};
@@ -170,8 +197,7 @@ function buildPrompt() {
       "unite": "",
       "prix_unitaire": 0.00,
       "remise": 0.00,
-      "categorie": "titre de catégorie imprimé sur le ticket pour cette ligne, ou une catégorie proposée",
-      "categorie_source": "ticket"
+      "categorie": "une catégorie de la liste ci-dessous"
     }
   ]
 }
@@ -184,8 +210,7 @@ Règles :
 - "quantite" : nombre d'articles, ou poids en kg si le produit est vendu au poids (alors "unite" vaut "kg"). Sinon laisse "unite" vide.
 - "prix_unitaire" : le montant imprimé à droite d'une ligne est le TOTAL de la ligne. Donne le prix d'UNE unité TTC (ex. « 2 x 1,19 » → 1,19 ; au poids : le prix au kilo, ex. « 0,158 kg x 17,49 €/kg » → quantité 0,158 et prix 17,49), avant remise, avec un point décimal.
 - "remise" : réduction liée à ce produit, en nombre positif (0 s'il n'y en a pas). Les remises sont souvent imprimées sur des lignes séparées, parfois à la fin du ticket (ex. « 2EME A -50% MARQUE ») : rattache-les au produit concerné.
-- "categorie" : beaucoup de tickets regroupent les produits sous des titres (rayons, familles de produits). Recopie exactement, pour chaque ligne, le titre sous lequel elle est imprimée (répète-le pour toutes les lignes du groupe) et mets "categorie_source" à "ticket".
-- Si le ticket n'imprime AUCUN titre de catégorie, choisis pour chaque ligne la plus adaptée parmi : ${S.categories.filter(c => c !== 'Autre').join(' | ')} | Autre, et mets "categorie_source" à "propose". N'invente jamais de catégorie quand le ticket en imprime.
+- "categorie" : choisis exactement UNE valeur parmi cette liste : ${S.categories.join(' | ')}. Classe chaque produit selon sa nature (ex. « Mousse de foie » → Charcuterie / traiteur). Les titres imprimés sur certains tickets (rayons, familles de produits) peuvent t'aider à choisir, mais ne les recopie pas. En cas de vrai doute, choisis Autre.
 - "total" : le total TTC du ticket après remises (ex. « TOTAL », « MONTANT DU », « TOTAL À PAYER »). Ce n'est ni le montant d'un seul moyen de paiement (CB, titres-restaurant, espèces) ni le nombre d'articles.
 - Si une information est illisible, mets null plutôt que d'inventer.`;
 }
@@ -210,14 +235,13 @@ function buildReview(d) {
     const nom = String(l.nom || l.designation || '').trim();
     const mapped = mapGet(store, label);
     const p = (mapped && prodById(mapped)) || prodByNorm(nom);
-    const rc = String(l.categorie ?? l.categorie_ticket ?? l.rayon ?? '').trim();
-    const tc = /^(null|undefined|-)$/i.test(rc) ? '' : rc;
-    let proposed = String(l.categorie_source || '').toLowerCase() === 'propose';
-    let tcat = '';
-    if (tc) { const ex = st && st.cats.find(c => norm(c) === norm(tc)); tcat = ex || pretty(tc); }
-    if (p && st && placeCat(p, st.id) && (!tc || proposed)) { tcat = placeCat(p, st.id); proposed = false; } // une catégorie déjà connue chez ce magasin prime sur une proposition
+    const rc = String(l.categorie ?? l.rayon ?? '').trim();
+    const ai = rc && !/^(null|undefined|-)$/i.test(rc) ? matchCat(rc) : '';
+    // Produit déjà classé : on garde sa catégorie. Produit nouveau, ou resté dans « Autre » : catégorie proposée par l'IA.
+    const known = p && p.category && p.category !== 'Autre';
+    const cat = known ? p.category : (ai || (p && p.category) || 'Autre');
     return {
-      on: true, label, nom: p ? p.name : nom, tcat, proposed: !!(proposed && tcat),
+      on: true, label, nom: p ? p.name : nom, cat,
       qty: num(l.quantite) || 1, unit: String(l.unite || '').trim(), price: num(l.prix_unitaire), disc: Math.abs(num(l.remise)),
     };
   });
@@ -225,7 +249,7 @@ function buildReview(d) {
   const lines = [], idx = {};
   raw.forEach(l => {
     const k = norm(l.label || l.nom) + '|' + l.price + '|' + norm(l.unit);
-    if (idx[k] != null) { const m = lines[idx[k]]; m.qty = Math.round((m.qty + l.qty) * 1000) / 1000; m.disc = r2(m.disc + l.disc); if (!m.tcat && l.tcat) { m.tcat = l.tcat; m.proposed = l.proposed; } }
+    if (idx[k] != null) { const m = lines[idx[k]]; m.qty = Math.round((m.qty + l.qty) * 1000) / 1000; m.disc = r2(m.disc + l.disc); if (m.cat === 'Autre' && l.cat !== 'Autre') m.cat = l.cat; }
     else { idx[k] = lines.length; lines.push(l); }
   });
   const date = parseDate(d.date) || imp.fileDate || today();
@@ -303,11 +327,12 @@ function viewLists() {
     <button class="ic" data-act="newList" aria-label="Nouvelle liste">＋</button>
     <button class="ic" data-act="listMenu" aria-label="Menu de la liste">⋯</button></div>
     <div class="bar"><select id="storeSel" aria-label="Magasin">${storeOpts}</select></div>
+    ${sid ? '<p class="hint">Articles rangés par catégorie. L\'ordre par rayon du magasin viendra avec le plan.</p>' : ''}
     <form id="addForm" class="add" autocomplete="off">
       <input id="addName" list="prodList" placeholder="Ajouter un article…" required>
       <datalist id="prodList">${dl}</datalist>
       <input id="addQty" type="number" min="1" value="1" inputmode="numeric" aria-label="Quantité">
-      ${catSelectFor('addCat', sid, sid ? '' : 'Autre')}
+      ${catSelect('addCat', 'Autre')}
       <button class="pri">Ajouter</button>
     </form>`;
 
@@ -319,9 +344,9 @@ function viewLists() {
 
   if (total) h += `<div class="progress">${done} / ${total} dans le caddie</div>`;
   const groups = {};
-  L.items.forEach(i => { const p = prodById(i.productId); const c = p ? groupOf(p, sid) : 'Autre'; (groups[c] = groups[c] || []).push(i); });
+  L.items.forEach(i => { const p = prodById(i.productId); const c = p ? groupOf(p) : 'Autre'; (groups[c] = groups[c] || []).push(i); });
   const rank = { todo: 0, cart: 1, unavailable: 2 };
-  orderedGroups(sid, Object.keys(groups)).forEach(c => {
+  orderedCats(Object.keys(groups)).forEach(c => {
     const arr = groups[c]; if (!arr) return;
     arr.sort((a, b) => rank[a.status] - rank[b.status]);
     h += `<section><h2>${esc(c)}</h2>${arr.map(itemRow).join('')}</section>`;
@@ -335,19 +360,16 @@ function catListHtml(q) {
   q = q.toLowerCase();
   const ps = S.products.filter(p => p.name.toLowerCase().includes(q)).sort((a, b) => a.name.localeCompare(b.name, 'fr'));
   if (!ps.length) return `<p class="empty">${S.products.length ? 'Aucun résultat.' : 'Catalogue vide. Il se remplit tout seul quand tu ajoutes des articles aux listes.'}</p>`;
-  const g = {}; ps.forEach(p => { const k = groupOf(p, catStore || null); (g[k] = g[k] || []).push(p); });
+  const g = {}; ps.forEach(p => { const k = groupOf(p); (g[k] = g[k] || []).push(p); });
   const lp = lastPrices();
-  return orderedGroups(catStore || null, Object.keys(g)).filter(c => g[c]).map(c =>
+  return orderedCats(Object.keys(g)).filter(c => g[c]).map(c =>
     `<section><h2>${esc(c)}</h2>` + g[c].map(p =>
       `<div class="item"><div class="txt" data-act="editProd" data-id="${p.id}"><b>${esc(p.name)}</b><span>${p.unit ? esc(p.unit) : 'sans unité'}${lp[p.id] ? ' · ' + fmt(lp[p.id].price) + ' € · ' + esc(lp[p.id].store) : ''}</span></div>
        <button class="ic sm" data-act="prodToList" data-id="${p.id}" title="Ajouter à la liste" aria-label="Ajouter à la liste">＋</button></div>`).join('') + '</section>').join('');
 }
 function viewCatalog() {
-  if (catStore && !storeById(catStore)) catStore = '';
-  const so = '<option value="">Rayons génériques</option>' + S.stores.map(s => `<option value="${s.id}" ${s.id === catStore ? 'selected' : ''}>🏬 ${esc(s.name)}</option>`).join('');
   return `<div class="bar"><input id="catSearch" type="search" placeholder="Rechercher un produit…" value="${esc(catQuery)}">
-    <button class="pri" data-act="addProd">＋ Produit</button></div>
-    <div class="bar"><select id="catStoreSel" aria-label="Classer par magasin">${so}</select></div><div id="catList">${catListHtml(catQuery)}</div>`;
+    <button class="pri" data-act="addProd">＋ Produit</button></div><div id="catList">${catListHtml(catQuery)}</div>`;
 }
 
 function viewTickets() {
@@ -391,14 +413,14 @@ function viewReview() {
   const R = imp.review;
   const stores = S.stores.map(x => `<option value="${esc(x.name)}">`).join('');
   const st = storeByName(R.store);
-  const cl = (st ? st.cats : []).map(c => `<option value="${esc(c)}">`).join('');
   const rows = R.lines.map((l, i) => {
     const p = prodByNorm(l.nom);
+    const cats = (S.categories.includes(l.cat) ? S.categories : [...S.categories, l.cat]).map(c => `<option ${c === l.cat ? 'selected' : ''}>${esc(c)}</option>`).join('');
     return `<div class="rl ${l.on ? '' : 'off'}">
-      <label class="rhead"><input type="checkbox" data-rf="on" data-i="${i}" ${l.on ? 'checked' : ''}><span class="lab">${esc(l.label)}</span>${l.proposed ? '<span class="badge prop">catégorie proposée</span>' : ''}<span class="badge ${p ? 'ok' : 'new'}">${p ? 'existe' : 'nouveau'}</span></label>
+      <label class="rhead"><input type="checkbox" data-rf="on" data-i="${i}" ${l.on ? 'checked' : ''}><span class="lab">${esc(l.label)}</span>${l.cat === 'Autre' ? '<span class="badge prop">à classer</span>' : ''}<span class="badge ${p ? 'ok' : 'new'}">${p ? 'existe' : 'nouveau'}</span></label>
       <div class="rgrid">
         <input class="full" data-rf="nom" data-i="${i}" value="${esc(l.nom)}" placeholder="Nom du produit">
-        <input class="full" data-rf="tcat" data-i="${i}" list="tcatList" value="${esc(l.tcat)}" placeholder="Catégorie du ticket (vide si aucune)">
+        <select class="full" data-rf="cat" data-i="${i}" aria-label="Catégorie">${cats}</select>
         <label>Qté<input type="number" step="any" min="0" inputmode="decimal" data-rf="qty" data-i="${i}" value="${l.qty}"></label>
         <label>Prix €<input type="number" step="0.01" min="0" inputmode="decimal" data-rf="price" data-i="${i}" value="${l.price}"></label>
         <label>Remise €<input type="number" step="0.01" min="0" inputmode="decimal" data-rf="disc" data-i="${i}" value="${l.disc}"></label>
@@ -406,11 +428,11 @@ function viewReview() {
       </div></div>`;
   }).join('');
   return `<div class="card"><h2>Vérifier le ticket</h2>
-      <label class="fl">Magasin<input id="tkStore" list="storeList" value="${esc(R.store)}"></label><datalist id="storeList">${stores}</datalist><datalist id="tcatList">${cl}</datalist>
+      <label class="fl">Magasin<input id="tkStore" list="storeList" value="${esc(R.store)}"></label><datalist id="storeList">${stores}</datalist>
       <div class="two"><label class="fl">Date<input id="tkDate" type="date" value="${esc(R.date)}"></label>
       <label class="fl">Total ticket €<input id="tkTotal" type="number" step="0.01" inputmode="decimal" value="${R.total || ''}"></label></div>
       <p id="tkSum">${sumHtml()}</p>
-      <p>${st ? `Magasin connu : ses catégories sont proposées.` : `Nouveau magasin : il sera créé avec les catégories de ce ticket.`}</p></div>${rows}
+      <p>${st ? 'Magasin connu.' : 'Nouveau magasin : il sera créé à la validation.'} Les produits déjà classés gardent leur catégorie.</p></div>${rows}
     <div class="row"><button class="sec" data-act="tkCancel">Annuler</button><button class="pri" data-act="tkValidate">Valider (${R.lines.filter(l => l.on).length})</button></div>`;
 }
 
@@ -421,28 +443,25 @@ function reviewInput(t) {
   else if (t.id === 'tkTotal') R.total = num(t.value);
   else {
     const i = +t.dataset.i, l = R.lines[i], f = t.dataset.rf; if (!l) return;
-    if (f === 'on') l.on = t.checked; else if (f === 'nom' || f === 'tcat') l[f] = t.value; else l[f] = num(t.value);
+    if (f === 'on') l.on = t.checked; else if (f === 'nom' || f === 'cat') l[f] = t.value; else l[f] = num(t.value);
+    if (f === 'nom') { const p2 = prodByNorm(t.value); if (p2 && p2.category && p2.category !== 'Autre') l.cat = p2.category; }
     const lt = $('#lt' + i); if (lt) lt.textContent = fmt(l.qty * l.price - l.disc) + ' €';
   }
   const s = $('#tkSum'); if (s) s.innerHTML = sumHtml();
 }
 
 function storeModalHtml(s) {
-  const rows = s.cats.map((c, i) => `<div class="cat"><span>${esc(c)}</span>
-    <button class="ic sm" data-act="stUp" data-id="${i}" aria-label="Monter">↑</button>
-    <button class="ic sm" data-act="stDown" data-id="${i}" aria-label="Descendre">↓</button>
-    <button class="ic sm" data-act="stCatRen" data-id="${i}" aria-label="Renommer">✎</button>
-    <button class="ic sm" data-act="stCatDel" data-id="${i}" aria-label="Supprimer">✕</button></div>`).join('')
-    || "<p class=\"empty\">Aucune catégorie : elles se créent à l'import des tickets.</p>";
-  return `<h3>🏬 ${esc(s.name)}</h3>${rows}
-    <div class="row"><button class="sec" data-act="stCatAdd">＋ Catégorie</button></div>
-    <div class="row"><button class="sec" data-act="stRen">Renommer le magasin</button><button class="sec danger" data-act="stDel">Supprimer</button></div>
+  const al = (s.aliases || []).length ? esc(s.aliases.join(', ')) : 'aucun';
+  return `<h3>🏬 ${esc(s.name)}</h3>
+    <p class="note">Noms reconnus sur les tickets : ${al}</p>
+    <div class="row"><button class="sec" data-act="stRen">Renommer</button><button class="sec" data-act="stAlias">Noms reconnus</button></div>
+    <div class="row"><button class="sec danger" data-act="stDel">Supprimer le magasin</button></div>
     <div class="row"><button class="pri" data-act="close">Fermer</button></div>`;
 }
 const stRefresh = () => { const s = storeById(stEdit); if (s) modal(storeModalHtml(s)); };
 
 function viewData() {
-  const stores = S.stores.map(s => `<div class="cat"><span>🏬 ${esc(s.name)} · ${s.cats.length} catégorie${s.cats.length > 1 ? 's' : ''}</span>
+  const stores = S.stores.map(s => `<div class="cat"><span>🏬 ${esc(s.name)}${(s.aliases || []).length ? ' · ' + esc(s.aliases.join(', ')) : ''}</span>
     <button class="ic sm" data-act="storeEdit" data-id="${s.id}" aria-label="Gérer">✎</button></div>`).join('') || '<p class="empty">Aucun magasin : ils se créent à l\'import du premier ticket.</p>';
   const cats = S.categories.map((c, i) => `<div class="cat"><span>${esc(c)}</span>
     <button class="ic sm" data-act="catUp" data-id="${i}" aria-label="Monter">↑</button>
@@ -453,10 +472,10 @@ function viewData() {
       <p>Exporte tes données (listes, catalogue, historique) dans un fichier à ranger sur ton Drive. Import : remplace tout le contenu.</p>
       <div class="row"><button class="pri" data-act="export">Exporter</button><button class="sec" data-act="import">Importer</button></div>
       <input type="file" id="impFile" accept="application/json,.json" hidden></div>
-    <div class="card"><h2>Magasins</h2><p>Chaque magasin a ses propres catégories, créées automatiquement à l'import des tickets. Touche ✎ pour les renommer, les réordonner ou les fusionner.</p>${stores}
+    <div class="card"><h2>Magasins</h2><p>Créés automatiquement à l'import des tickets. Le nom imprimé sur le ticket (ville, société) est mémorisé pour reconnaître le magasin. Les rayons de chaque magasin viendront plus tard.</p>${stores}
       <div class="row"><button class="sec" data-act="storeAdd">＋ Ajouter un magasin</button></div></div>
-    <div class="card"><h2>Rayons génériques</h2><p>Utilisés quand aucun magasin n'est choisi dans la liste. L'ordre ici est l'ordre d'affichage.</p>${cats}
-      <div class="row"><button class="sec" data-act="catAdd">＋ Ajouter un rayon</button></div></div>
+    <div class="card"><h2>Catégories</h2><p>Communes à tous les magasins. L'ordre ici est l'ordre d'affichage. L'IA classe les produits dans cette liste : après un changement, recopie la consigne.</p>${cats}
+      <div class="row"><button class="sec" data-act="catAdd">＋ Ajouter une catégorie</button></div></div>
     <div class="card"><h2>Partage à plusieurs</h2><p>Pas encore activé : la synchronisation en temps réel sera branchée à l'étape suivante.</p></div>
     <div class="card"><h2>Zone sensible</h2><div class="row"><button class="sec danger" data-act="reset">Tout effacer</button></div></div>
     <p class="empty">${S.products.length} produits · ${S.history.length} achats archivés<br>Version de l'appli : v${APP_VERSION}</p>`;
@@ -504,12 +523,11 @@ const ACT = {
 
   edit(id) {
     const i = curList().items.find(x => x.id === id); if (!i) return; const p = prodById(i.productId);
-    const sid = activeStore();
     modal(`<h3>${esc(p ? p.name : '?')}</h3>
       <form id="itemForm" data-id="${i.id}">
         <label>Quantité</label><input id="eQty" type="number" min="1" value="${i.qty}" inputmode="numeric">
         <label>Note (marque, taille…)</label><input id="eNote" value="${esc(i.note)}">
-        <label>${sid ? 'Catégorie chez ' + esc(storeById(sid).name) : 'Rayon'}</label>${catSelectFor('eCat', sid, sid ? placeCat(p, sid) : (p ? p.category : 'Autre'))}
+        <label>Catégorie</label>${catSelect('eCat', p ? p.category : 'Autre')}
         <div class="row"><button type="button" class="sec danger" data-act="delItem" data-id="${i.id}">Retirer</button><button class="pri">Enregistrer</button></div>
       </form>`);
   },
@@ -538,15 +556,19 @@ const ACT = {
     S = fresh(); save(); render(); toast('Données effacées');
   },
 
-  catAdd() { const n = (prompt('Nom du rayon ?') || '').trim(); if (!n || S.categories.includes(n)) return; S.categories.splice(S.categories.length - 1, 0, n); save(); render(); },
+  catAdd() { const n = (prompt('Nom de la catégorie ?') || '').trim(); if (!n || S.categories.includes(n)) return; S.categories.splice(S.categories.length - 1, 0, n); save(); render(); },
   catRen(i) {
     i = +i; const old = S.categories[i]; const n = (prompt('Nouveau nom ?', old) || '').trim();
-    if (!n || n === old || S.categories.includes(n)) return;
-    S.categories[i] = n; S.products.forEach(p => { if (p.category === old) p.category = n; }); save(); render();
+    if (!n || n === old) return;
+    if (S.categories.includes(n)) {
+      if (!confirm(`« ${n} » existe déjà : fusionner « ${old} » dedans ?`)) return;
+      S.products.forEach(p => { if (p.category === old) p.category = n; }); S.categories.splice(i, 1);
+    } else { S.categories[i] = n; S.products.forEach(p => { if (p.category === old) p.category = n; }); }
+    save(); render();
   },
   catDel(i) {
     i = +i; const c = S.categories[i]; if (c === 'Autre') return;
-    if (!confirm(`Supprimer le rayon « ${c} » ? Ses produits passent dans « Autre ».`)) return;
+    if (!confirm(`Supprimer la catégorie « ${c} » ? Ses produits passent dans « Autre ».`)) return;
     S.products.forEach(p => { if (p.category === c) p.category = 'Autre'; }); S.categories.splice(i, 1); save(); render();
   },
   catUp(i) { i = +i; if (i < 1) return; [S.categories[i - 1], S.categories[i]] = [S.categories[i], S.categories[i - 1]]; save(); render(); },
@@ -579,26 +601,24 @@ const ACT = {
     const R = imp.review; if (!R) return;
     const storeName = R.store.trim(); if (!storeName) { toast('Indique le magasin'); return; }
     const on = R.lines.filter(l => l.on && l.nom.trim()); if (!on.length) { toast('Aucune ligne sélectionnée'); return; }
-    const st = ensureStore(storeName); const cats0 = st.cats.length;
+    const st = ensureStore(storeName);
     st.aliases = st.aliases || [];
     (R.printed || []).forEach(n => { const o = storeByName(n); if (norm(n) && norm(n) !== norm(st.name) && !o) st.aliases.push(n.trim()); });
     const tid = uid(); const dateMs = new Date(R.date + 'T12:00:00').getTime() || Date.now();
-    const lines = []; let created = 0;
+    const lines = []; let created = 0, reclassed = 0;
     on.forEach(l => {
       let p = prodByNorm(l.nom);
-      const tcat = l.tcat && l.tcat.trim() ? ensureStoreCat(st, l.tcat) : '';
-      if (!p) { p = { id: uid(), name: l.nom.trim(), category: tcat ? matchCat(tcat) : 'Autre', unit: l.unit || '', place: {} }; S.products.push(p); created++; }
-      else if (!p.unit && l.unit) p.unit = l.unit;
-      if (tcat) setPlace(p, st.id, tcat);
+      const cat = l.cat && S.categories.includes(l.cat) ? l.cat : (l.cat ? matchCat(l.cat) : 'Autre');
+      if (!p) { p = { id: uid(), name: l.nom.trim(), category: cat, unit: l.unit || '', place: {} }; S.products.push(p); created++; }
+      else { if (!p.unit && l.unit) p.unit = l.unit; if (p.category !== cat) { p.category = cat; reclassed++; } }
       mapSet(st.name, l.label, p.id);
       lines.push({ label: l.label, productId: p.id, qty: l.qty, unitPrice: l.price, discount: l.disc, lineTotal: r2(l.qty * l.price - l.disc) });
       S.history.push({ id: uid(), date: dateMs, productId: p.id, name: p.name, qty: l.qty, listName: 'Ticket ' + st.name, ticketId: tid, storeId: st.id });
     });
     const sum = r2(lines.reduce((s, l) => s + l.lineTotal, 0));
     S.tickets.push({ id: tid, store: st.name, storeId: st.id, date: R.date, total: R.total || sum, lines });
-    const newCats = st.cats.length - cats0;
-    save(); resetImp(); tab = 'catalog'; catStore = st.id; render();
-    toast(`${created} produit${created > 1 ? 's' : ''} créé${created > 1 ? 's' : ''}` + (newCats ? `, ${newCats} catégorie${newCats > 1 ? 's' : ''} pour ${st.name}` : ''));
+    save(); resetImp(); tab = 'catalog'; render();
+    toast(`${created} produit${created > 1 ? 's' : ''} créé${created > 1 ? 's' : ''}` + (reclassed ? `, ${reclassed} reclassé${reclassed > 1 ? 's' : ''}` : ''));
   },
   tkDel(id) {
     if (!confirm('Supprimer ce ticket et ses achats archivés ? Les produits du catalogue sont conservés.')) return;
@@ -621,39 +641,18 @@ const ACT = {
   },
   stDel() {
     const s = storeById(stEdit); if (!s) return;
-    if (!confirm(`Supprimer le magasin « ${s.name} » et ses catégories ? Les tickets et les produits sont conservés.`)) return;
+    if (!confirm(`Supprimer le magasin « ${s.name} » ? Les tickets et les produits sont conservés.`)) return;
     S.stores = S.stores.filter(x => x.id !== s.id);
     S.lists.forEach(l => { if (l.storeId === s.id) l.storeId = null; });
     S.products.forEach(p => { if (p.place) delete p.place[s.id]; });
-    if (catStore === s.id) catStore = '';
     save(); closeModal(); render();
   },
-  stCatAdd() {
+  stAlias() {
     const s = storeById(stEdit); if (!s) return;
-    const n = (prompt('Nom de la catégorie ?') || '').trim(); if (!n) return;
-    ensureStoreCat(s, n, true); save(); render(); stRefresh();
-  },
-  stCatRen(i) {
-    const s = storeById(stEdit); if (!s) return; i = +i; const old = s.cats[i];
-    const n = (prompt('Nouveau nom ?', old) || '').trim(); if (!n || n === old) return;
-    const dup = s.cats.findIndex((c, k) => k !== i && norm(c) === norm(n));
-    if (dup >= 0) {
-      if (!confirm(`« ${s.cats[dup]} » existe déjà : fusionner les deux catégories ?`)) return;
-      S.products.forEach(p => { if (placeCat(p, s.id) === old) setPlace(p, s.id, s.cats[dup]); });
-      s.cats.splice(i, 1);
-    } else {
-      s.cats[i] = n; S.products.forEach(p => { if (placeCat(p, s.id) === old) setPlace(p, s.id, n); });
-    }
+    const v = prompt('Noms imprimés sur les tickets de ce magasin (séparés par une virgule) ?', (s.aliases || []).join(', ')); if (v == null) return;
+    s.aliases = v.split(',').map(x => x.trim()).filter(x => x && norm(x) !== norm(s.name) && !(storeByName(x) && storeByName(x).id !== s.id));
     save(); render(); stRefresh();
   },
-  stCatDel(i) {
-    const s = storeById(stEdit); if (!s) return; i = +i; const c = s.cats[i];
-    if (!confirm(`Supprimer la catégorie « ${c} » ? Ses produits deviennent « sans catégorie » pour ce magasin.`)) return;
-    S.products.forEach(p => { if (placeCat(p, s.id) === c) setPlace(p, s.id, ''); });
-    s.cats.splice(i, 1); save(); render(); stRefresh();
-  },
-  stUp(i) { const s = storeById(stEdit); i = +i; if (!s || i < 1) return; [s.cats[i - 1], s.cats[i]] = [s.cats[i], s.cats[i - 1]]; save(); stRefresh(); },
-  stDown(i) { const s = storeById(stEdit); i = +i; if (!s || i >= s.cats.length - 1) return; [s.cats[i + 1], s.cats[i]] = [s.cats[i], s.cats[i + 1]]; save(); stRefresh(); },
 
   close() { closeModal(); render(); },
 };
@@ -662,8 +661,7 @@ function prodForm(p) {
   modal(`<h3>${p ? 'Modifier le produit' : 'Nouveau produit'}</h3>
     <form id="prodForm" data-id="${p ? p.id : ''}">
       <label>Nom</label><input id="pName" value="${esc(p ? p.name : '')}" required>
-      <label>Rayon générique (sans magasin)</label>${catSelect('pCat', p ? p.category : 'Autre')}
-      ${S.stores.map(s => `<label>Catégorie chez ${esc(s.name)}</label><select id="pS_${s.id}">${storeCatOptions(s.id, placeCat(p, s.id))}</select>`).join('')}
+      <label>Catégorie</label>${catSelect('pCat', p ? p.category : 'Autre')}
       <label>Unité (facultatif : kg, L, boîte…)</label><input id="pUnit" value="${esc(p ? p.unit : '')}">
       <div class="row">${p ? `<button type="button" class="sec danger" data-act="delProd" data-id="${p.id}">Supprimer</button>` : '<button type="button" class="sec" data-act="close">Annuler</button>'}<button class="pri">Enregistrer</button></div>
     </form>`);
@@ -683,16 +681,13 @@ document.addEventListener('submit', e => {
   if (f.id === 'addForm') {
     const name = $('#addName').value.trim(); if (!name) return;
     const qty = Math.max(1, parseInt($('#addQty').value, 10) || 1);
-    const sid = activeStore(); const cv = $('#addCat').value;
     let p = prodByName(name);
-    if (!p) { p = { id: uid(), name, category: sid ? (cv ? matchCat(cv) : 'Autre') : cv, unit: '', place: {} }; S.products.push(p); }
-    if (sid && cv && !placeCat(p, sid)) setPlace(p, sid, cv);
+    if (!p) { p = { id: uid(), name, category: $('#addCat').value, unit: '', place: {} }; S.products.push(p); }
     addItem(p.id, qty); render(); $('#addName').focus();
   } else if (f.id === 'itemForm') {
     const i = curList().items.find(x => x.id === f.dataset.id); if (!i) return;
     i.qty = Math.max(1, parseInt($('#eQty').value, 10) || 1); i.note = $('#eNote').value.trim();
-    const p = prodById(i.productId); const sid = activeStore();
-    if (p) { const v = $('#eCat').value; if (sid) setPlace(p, sid, v); else p.category = v; }
+    const p = prodById(i.productId); if (p) p.category = $('#eCat').value;
     save(); closeModal(); render();
   } else if (f.id === 'prodForm') {
     const name = $('#pName').value.trim(); if (!name) return;
@@ -701,7 +696,6 @@ document.addEventListener('submit', e => {
     let p = f.dataset.id ? prodById(f.dataset.id) : null;
     if (!p) { p = { id: uid(), name, category: 'Autre', unit: '', place: {} }; S.products.push(p); }
     p.name = name; p.category = $('#pCat').value; p.unit = $('#pUnit').value.trim();
-    S.stores.forEach(st => { const el = $('#pS_' + st.id); if (!el) return; const v = el.value; if (v || placeCat(p, st.id)) setPlace(p, st.id, v); });
     save(); closeModal(); render();
   }
 });
@@ -710,7 +704,7 @@ document.addEventListener('input', e => {
   const t = e.target;
   if (t.id === 'addName') {
     const p = prodByName(t.value);
-    if (p) { const s = $('#addCat'); if (s) { const sid = activeStore(); s.value = sid ? placeCat(p, sid) : p.category; } }
+    if (p) { const s = $('#addCat'); if (s) s.value = p.category; }
   } else if (t.id === 'catSearch') {
     catQuery = t.value; $('#catList').innerHTML = catListHtml(catQuery);
   } else if (t.id === 'tkJson') {
@@ -723,7 +717,6 @@ document.addEventListener('input', e => {
 document.addEventListener('change', e => {
   if (e.target.id === 'listSel') { S.currentList = e.target.value; save(); render(); }
   else if (e.target.id === 'storeSel') { curList().storeId = e.target.value || null; save(); render(); }
-  else if (e.target.id === 'catStoreSel') { catStore = e.target.value; render(); }
   else if (e.target.id === 'tkCam' || e.target.id === 'tkFile') {
     const f = e.target.files[0]; if (!f) return;
     e.target.value = ''; loadPhoto(f);

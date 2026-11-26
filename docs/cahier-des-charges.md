@@ -1,6 +1,6 @@
 # Appli Courses — Cahier des charges
 
-Version 0.3 — 25/11/2026
+Version 0.4 — 26/11/2026
 
 ## 1. Objectif
 
@@ -44,14 +44,13 @@ Usage personnel et familial, gratuit, sans compte obligatoire.
 - Fonctionnement hors ligne : les modifications faites sans réseau se synchronisent au retour de la connexion.
 - Export/import JSON conservé comme sauvegarde.
 
-### Magasins et catégories (livré en v2.0)
-- Chaque magasin a ses propres catégories, reprises des titres imprimés sur ses tickets et créées automatiquement à l'import.
-- Un produit a, pour chaque magasin, une **catégorie du ticket** et un **rayon réel** (emplacement physique). Les deux sont distincts : deux produits d'une même catégorie peuvent être dans deux rayons différents.
-- Une liste peut être rattachée à un magasin : les articles sont alors rangés selon les catégories de ce magasin.
-- Sans magasin choisi : rayons génériques personnels.
-- Si un ticket n'imprime aucune catégorie (cas d'Intermarché), l'IA propose un rayon parmi les rayons génériques, signalé comme « proposé » et modifiable.
-- Le nom du magasin est déduit du logo ; le nom imprimé (ville, société) est mémorisé comme alias.
-- Le rayon réel sera utilisé par le plan du magasin (V4).
+### Magasins, catégories et rayons (catégories communes livrées en v3.0)
+- **Catégorie** : grand thème commun à tous les magasins (liste personnalisable). Elle sert à ranger les listes et le catalogue.
+- **Rayon** : emplacement physique propre à chaque magasin, à renseigner plus tard (plan du magasin, V4). Le champ existe déjà dans les données.
+- Un ticket n'impose pas ses catégories : ses titres aident seulement l'IA à classer. Une seule catégorie par ligne, modifiable avant validation.
+- Un produit déjà classé garde sa catégorie à l'import ; un produit resté dans « Autre » est reclassé.
+- Une liste peut être rattachée à un magasin (affichage par catégorie pour l'instant, ordre par rayon plus tard).
+- Un magasin a un nom et des « noms reconnus » (ville, société imprimés sur le ticket).
 
 ### V2 — Mode « En courses »
 - Vue dédiée : gros boutons, groupée par rayon, articles pris repliés.
@@ -89,7 +88,7 @@ Consignes à copier avec la photo, JSON attendu à définir : magasin, date, lig
 ## 7. Points ouverts
 
 1. ~~Partage à plusieurs~~ : tranché, synchronisation en temps réel. Reste à valider le choix Firebase vs Supabase et à créer le projet gratuit.
-2. ~~Structure des catégories/rayons~~ : tranché, catégories propres à chaque magasin (v2.0).
+2. ~~Structure des catégories/rayons~~ : tranché, catégories communes + rayons par magasin plus tard (v3.0).
 3. Regroupement des produits « similaires » (manuel au début ?).
 4. Format exact du JSON ticket (à tester avec une vraie photo de ticket du magasin principal).
 5. Conception du plan magasin.

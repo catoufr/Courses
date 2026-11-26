@@ -14,7 +14,7 @@ Ouvrir `index.html` dans un navigateur suffit (le mode hors ligne et l'installat
 Onglet « Tickets » : photo du ticket ou fichier (image, PDF d'eTicket), « Analyser avec Claude ou Gemini » (consigne copiée, photo partagée), copie de la réponse puis retour dans l'appli : le formulaire se remplit tout seul. Vérification, puis validation pour créer les produits du catalogue.
 
 ## Magasins et catégories
-Chaque magasin a ses catégories, créées à l'import des tickets (Réglages → Magasins pour les gérer). Dans une liste, choisis le magasin pour ranger les articles selon ses catégories.
+Les catégories (thèmes comme Charcuterie, Alcools, Bricolage…) sont communes à tous les magasins : Réglages → Catégories. L'IA classe les produits à l'import des tickets. Les magasins et les noms imprimés sur leurs tickets se gèrent dans Réglages → Magasins. Les rayons propres à chaque magasin viendront plus tard.
 
 ## Fichiers
 - `index.html`, `style.css`, `app.js` : l'appli

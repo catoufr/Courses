@@ -1,8 +1,14 @@
 # Appli Courses — État des lieux
 
-Mis à jour : 25/11/2026 — appli en v2.1
+Mis à jour : 26/11/2026 — appli en v3.0
 
 ## Terminé
+- **v3.0 — catégories communes** : fin des catégories par magasin. 19 catégories thématiques communes à tous les magasins (Fruits et légumes, Charcuterie / traiteur, Crèmerie / frais, Alcools, Bricolage / outillage…), modifiables dans Réglages (renommer, réordonner, supprimer, fusion automatique si le nom existe déjà).
+  - import : un seul champ « catégorie » par ligne, pré-rempli par l'IA (les titres du ticket ne servent que d'indice) ; un produit déjà classé garde sa catégorie, un produit resté dans « Autre » est reclassé par l'import ; badge « à classer »
+  - liste : choix du magasin conservé, articles rangés par catégorie (l'ordre par rayon viendra avec le plan)
+  - magasins : nom + « noms reconnus » (ville, société imprimés sur le ticket) gérés dans Réglages
+  - migration automatique des données v2 (anciennes catégories renommées, produits « Autre » reclassés d'après leurs anciennes catégories de magasin)
+  - le champ « rayon » (emplacement physique par magasin) reste dans les données, sans écran pour l'instant
 - Cahier des charges v0.1 rédigé.
 - Décision : synchronisation en temps réel entre les membres du foyer.
 - V1 locale construite et testée (logique) :
@@ -44,7 +50,7 @@ Mis à jour : 25/11/2026 — appli en v2.1
 - Test de l'appli sur le téléphone (mise en ligne GitHub Pages à faire).
 
 ## À faire
-- Tester la v2.1 avec Gemini sur les vrais tickets et ajuster la consigne selon ce que l'IA renvoie ; tester Leclerc et Carrefour.
+- Tester la v3.0 avec Gemini sur les vrais tickets et ajuster la consigne selon ce que l'IA renvoie ; tester Leclerc et Carrefour.
 - V1 (suite) : partage en temps réel (Firebase) — créer le projet gratuit, brancher la synchronisation dans save().
 - Mettre en ligne sur GitHub Pages et tester l'installation sur le téléphone.
 - V2 : mode « En courses » dédié.
@@ -52,7 +58,7 @@ Mis à jour : 25/11/2026 — appli en v2.1
 - V4 : plan du magasin.
 
 ## Limites connues
-- Les catégories sont recopiées telles qu'imprimées (un même titre écrit différemment sur deux tickets crée deux catégories : utiliser « fusionner »).
+- La classification dépend de l'IA : en cas de doute elle choisit « Autre » (à corriger dans la table de vérification).
 - Les données sont dans le navigateur de chaque téléphone : sans la synchronisation, les listes ne sont pas partagées.
 - Les images de tickets ne sont pas conservées : la photo sert seulement à l'envoi à l'IA (archivage prévu ensuite).
 - Le format JSON des consignes est à valider avec une vraie photo de ticket.
