@@ -1,6 +1,6 @@
 # Appli Courses — Cahier des charges
 
-Version 0.4 — 26/11/2026
+Version 0.5 — 26/11/2026
 
 ## 1. Objectif
 
@@ -43,6 +43,10 @@ Usage personnel et familial, gratuit, sans compte obligatoire.
 - Rejoindre le foyer par un code ou un lien, sans création de compte.
 - Fonctionnement hors ligne : les modifications faites sans réseau se synchronisent au retour de la connexion.
 - Export/import JSON conservé comme sauvegarde.
+
+### Affichage et import multiple (livré en v3.1)
+- Listes et catalogue groupés par catégorie, repliés au chargement, avec « Tout développer » ; l'état reste jusqu'au rechargement.
+- Import : plusieurs tickets (dates et enseignes différentes) analysés en une fois, vérifiés et validés un par un.
 
 ### Magasins, catégories et rayons (catégories communes livrées en v3.0)
 - **Catégorie** : grand thème commun à tous les magasins (liste personnalisable). Elle sert à ranger les listes et le catalogue.

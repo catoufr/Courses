@@ -2,7 +2,7 @@
 /* Appli Courses — V1 (local, hors ligne). La synchronisation viendra se brancher dans save(). */
 
 const KEY = 'courses.v1';
-const APP_VERSION = '3.0';
+const APP_VERSION = '3.1';
 const DEFAULT_CATS = ['Fruits et légumes', 'Boucherie / volaille', 'Poissonnerie', 'Charcuterie / traiteur', 'Crèmerie / frais',
   'Boulangerie / viennoiserie', 'Épicerie salée', 'Épicerie sucrée', 'Surgelés', 'Boissons sans alcool', 'Alcools', 'Bébé / enfant',
   'Hygiène / beauté', 'Entretien / ménage', 'Maison / bazar', 'Bricolage / outillage', 'Textile', 'Animaux', 'Autre'];
@@ -121,6 +121,7 @@ function addItem(pid, qty) {
   const ex = L.items.find(i => i.productId === pid && i.status !== 'cart');
   if (ex) { ex.qty += qty; if (ex.status === 'unavailable') ex.status = 'todo'; }
   else L.items.push({ id: uid(), productId: pid, qty, note: '', status: 'todo' });
+  const pr = prodById(pid); if (pr && typeof openCats !== 'undefined') openCats.lists.add(groupOf(pr));
   save();
 }
 
@@ -182,8 +183,13 @@ function fileDate(name) {
   return m ? parseDate(`${m[1]}/${m[2]}/${m[3]}`) : '';
 }
 
-function buildPrompt() {
-  return `Tu reçois la photo ou le PDF d'un ticket de caisse de supermarché. Extrais-en les informations et réponds UNIQUEMENT avec un bloc de code \`\`\`json contenant un JSON valide, sans aucun texte avant ni après (le bloc de code est indispensable : il permet de copier la réponse en un clic), de cette forme :
+function buildPrompt(n) {
+  n = n || 1;
+  const multi = n > 1;
+  const head = multi
+    ? `Tu reçois ${n} photos ou PDF : chacun est un ticket de caisse de supermarché distinct (enseignes et dates peuvent différer). Extrais les informations de CHAQUE ticket, dans l'ordre où ils te sont donnés, et réponds UNIQUEMENT avec un bloc de code \`\`\`json contenant un JSON valide, sans aucun texte avant ni après (le bloc de code est indispensable : il permet de copier la réponse en un clic). Ce JSON est de la forme { "tickets": [ … ] } avec exactement un objet par ticket (${n} au total), chacun de cette forme :`
+    : `Tu reçois la photo ou le PDF d'un ticket de caisse de supermarché. Extrais-en les informations et réponds UNIQUEMENT avec un bloc de code \`\`\`json contenant un JSON valide, sans aucun texte avant ni après (le bloc de code est indispensable : il permet de copier la réponse en un clic), de cette forme :`;
+  return `${head}
 {
   "magasin": "enseigne du supermarché",
   "magasin_imprime": "nom imprimé en texte en haut du ticket",
@@ -215,17 +221,21 @@ Règles :
 - Si une information est illisible, mets null plutôt que d'inventer.`;
 }
 
-function parseTicket(txt) {
+// Accepte un ticket seul, { "tickets": [...] } ou une liste de tickets : renvoie toujours une liste.
+function parseTickets(txt) {
   const t = String(txt || '').trim().replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
   if (t.includes('libellé exact imprimé')) throw new Error("c'est la consigne, pas la réponse de l'IA");
-  const a = t.indexOf('{'), b = t.lastIndexOf('}');
+  const a = t.search(/[\[{]/), b = Math.max(t.lastIndexOf('}'), t.lastIndexOf(']'));
   if (a < 0 || b < a) throw new Error('aucun JSON trouvé');
   const d = JSON.parse(t.slice(a, b + 1));
-  if (!d || !Array.isArray(d.lignes) || !d.lignes.length) throw new Error('aucune ligne de produit');
-  return d;
+  const arr = Array.isArray(d) ? d : Array.isArray(d && d.tickets) ? d.tickets : [d];
+  const ok = arr.filter(x => x && Array.isArray(x.lignes) && x.lignes.length);
+  if (!ok.length) throw new Error('aucune ligne de produit');
+  return ok;
 }
+function parseTicket(txt) { return parseTickets(txt)[0]; }
 
-function buildReview(d) {
+function buildReview(d, fd) {
   const m1 = String(d.magasin || '').trim(), m2 = String(d.magasin_imprime || '').trim();
   const st = storeByName(m1) || storeByName(m2);
   const store = st ? st.name : (m1 || m2);
@@ -252,7 +262,7 @@ function buildReview(d) {
     if (idx[k] != null) { const m = lines[idx[k]]; m.qty = Math.round((m.qty + l.qty) * 1000) / 1000; m.disc = r2(m.disc + l.disc); if (m.cat === 'Autre' && l.cat !== 'Autre') m.cat = l.cat; }
     else { idx[k] = lines.length; lines.push(l); }
   });
-  const date = parseDate(d.date) || imp.fileDate || today();
+  const date = parseDate(d.date) || fd || today();
   return { store, printed, date, total: num(d.total), lines };
 }
 
@@ -273,12 +283,12 @@ function shrinkImage(file, max = 2200) {
 }
 async function loadPhoto(f) {
   const pdf = f.type === 'application/pdf' || /\.pdf$/i.test(f.name || '');
-  if (!pdf && !/^image\//.test(f.type || '') && !/\.(jpe?g|png|webp|heic|heif|gif|bmp)$/i.test(f.name || '')) { toast('Fichier non pris en charge : choisis un PDF ou une image'); return; }
+  if (!pdf && !/^image\//.test(f.type || '') && !/\.(jpe?g|png|webp|heic|heif|gif|bmp)$/i.test(f.name || '')) { toast('Fichier non pris en charge : choisis un PDF ou une image'); return false; }
   const out = pdf ? f : await shrinkImage(f);
-  if (imp.photo) URL.revokeObjectURL(imp.photo);
-  imp.photoFile = out; imp.photo = pdf ? null : URL.createObjectURL(out); imp.isPdf = pdf; imp.fileName = f.name || 'ticket.pdf'; imp.fileDate = fileDate(f.name);
-  render();
+  imp.photos.push({ file: out, url: pdf ? null : URL.createObjectURL(out), isPdf: pdf, name: f.name || (pdf ? 'ticket.pdf' : 'ticket.jpg'), fileDate: fileDate(f.name) });
+  return true;
 }
+async function loadPhotos(files) { for (const f of files) await loadPhoto(f); render(); }
 
 // Au retour depuis Claude ou Gemini : si le presse-papiers contient la réponse, on remplit le formulaire.
 async function checkClipboardForTicket() {
@@ -286,21 +296,47 @@ async function checkClipboardForTicket() {
   try {
     const t = await navigator.clipboard.readText();
     if (!/"lignes"/.test(t)) return;
-    const review = buildReview(parseTicket(t));
-    imp.json = t; imp.review = review; imp.error = ''; imp.waiting = false; tab = 'tickets';
-    render(); window.scrollTo(0, 0); toast('Ticket reconnu');
+    const list = parseTickets(t);
+    imp.json = t; startQueue(list); tab = 'tickets';
+    render(); window.scrollTo(0, 0); toast(list.length > 1 ? list.length + ' tickets reconnus' : 'Ticket reconnu');
   } catch (e) { /* pas de droit de lecture ou pas encore la réponse : l'utilisateur colle à la main */ }
 }
 
 /* ---------- Vues ---------- */
-let imp = { photo: null, photoFile: null, isPdf: false, fileName: '', fileDate: '', review: null, json: '', error: '', waiting: false };
-function resetImp() { if (imp.photo) URL.revokeObjectURL(imp.photo); imp = { photo: null, photoFile: null, isPdf: false, fileName: '', fileDate: '', review: null, json: '', error: '', waiting: false }; }
+const newImp = () => ({ photos: [], queue: [], pos: 0, total: 0, review: null, json: '', error: '', waiting: false });
+let imp = newImp();
+// Charge le ticket suivant de la file (construit à ce moment pour tenir compte des produits déjà créés).
+function showNext() { const q = imp.queue[0]; imp.review = q ? buildReview(q.d, q.fd) : null; }
+function startQueue(list) {
+  const n = imp.photos.length;
+  imp.queue = list.map((d, i) => ({ d, fd: n === list.length && imp.photos[i] ? imp.photos[i].fileDate : (n === 1 && imp.photos[0] ? imp.photos[0].fileDate : '') }));
+  imp.total = list.length; imp.error = ''; imp.waiting = false; showNext();
+}
+function resetImp() { imp.photos.forEach(p => { if (p.url) URL.revokeObjectURL(p.url); }); imp = newImp(); }
 
 function render() {
   const av = $('#appVer'); if (av) av.textContent = 'v' + APP_VERSION;
   document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
   const v = $('#view');
   v.innerHTML = tab === 'lists' ? viewLists() : tab === 'catalog' ? viewCatalog() : tab === 'tickets' ? viewTickets() : viewData();
+}
+
+// Catégories repliées au chargement ; l'état (ouvert/fermé) dure jusqu'au rechargement de l'appli.
+const openCats = { lists: new Set(), catalog: new Set() };
+function catSection(view, c, count, body, force) {
+  const open = force || openCats[view].has(c);
+  return `<section><button class="cath" data-act="toggleCat" data-v="${view}" data-c="${esc(c)}" aria-expanded="${open}"><span>${open ? '▾' : '▸'} ${esc(c)}</span><em>${count}</em></button>${open ? body : ''}</section>`;
+}
+function catsOf(view) {
+  const set = new Set();
+  if (view === 'lists') curList().items.forEach(i => { const p = prodById(i.productId); set.add(p ? groupOf(p) : 'Autre'); });
+  else S.products.forEach(p => set.add(groupOf(p)));
+  return [...set];
+}
+function expandBar(view) {
+  const names = catsOf(view); if (names.length < 2) return '';
+  const all = names.every(c => openCats[view].has(c));
+  return `<div class="expbar"><button class="sec sm" data-act="expandAll" data-v="${view}">${all ? 'Tout réduire' : 'Tout développer'}</button></div>`;
 }
 
 function itemRow(i) {
@@ -346,11 +382,13 @@ function viewLists() {
   const groups = {};
   L.items.forEach(i => { const p = prodById(i.productId); const c = p ? groupOf(p) : 'Autre'; (groups[c] = groups[c] || []).push(i); });
   const rank = { todo: 0, cart: 1, unavailable: 2 };
+  let secs = '';
   orderedCats(Object.keys(groups)).forEach(c => {
     const arr = groups[c]; if (!arr) return;
     arr.sort((a, b) => rank[a.status] - rank[b.status]);
-    h += `<section><h2>${esc(c)}</h2>${arr.map(itemRow).join('')}</section>`;
+    secs += catSection('lists', c, arr.length, arr.map(itemRow).join(''));
   });
+  h += expandBar('lists') + secs;
   if (!total) h += `<p class="empty">Liste vide. Ajoute un article ci-dessus.</p>`;
   if (done) h += `<button class="sec finish" data-act="finish">Terminer les courses (${done} article${done > 1 ? 's' : ''} pris)</button>`;
   return h;
@@ -362,14 +400,14 @@ function catListHtml(q) {
   if (!ps.length) return `<p class="empty">${S.products.length ? 'Aucun résultat.' : 'Catalogue vide. Il se remplit tout seul quand tu ajoutes des articles aux listes.'}</p>`;
   const g = {}; ps.forEach(p => { const k = groupOf(p); (g[k] = g[k] || []).push(p); });
   const lp = lastPrices();
-  return orderedCats(Object.keys(g)).filter(c => g[c]).map(c =>
-    `<section><h2>${esc(c)}</h2>` + g[c].map(p =>
+  return orderedCats(Object.keys(g)).filter(c => g[c]).map(c => catSection('catalog', c, g[c].length,
+    g[c].map(p =>
       `<div class="item"><div class="txt" data-act="editProd" data-id="${p.id}"><b>${esc(p.name)}</b><span>${p.unit ? esc(p.unit) : 'sans unité'}${lp[p.id] ? ' · ' + fmt(lp[p.id].price) + ' € · ' + esc(lp[p.id].store) : ''}</span></div>
-       <button class="ic sm" data-act="prodToList" data-id="${p.id}" title="Ajouter à la liste" aria-label="Ajouter à la liste">＋</button></div>`).join('') + '</section>').join('');
+       <button class="ic sm" data-act="prodToList" data-id="${p.id}" title="Ajouter à la liste" aria-label="Ajouter à la liste">＋</button></div>`).join(''), !!q)).join('');
 }
 function viewCatalog() {
   return `<div class="bar"><input id="catSearch" type="search" placeholder="Rechercher un produit…" value="${esc(catQuery)}">
-    <button class="pri" data-act="addProd">＋ Produit</button></div><div id="catList">${catListHtml(catQuery)}</div>`;
+    <button class="pri" data-act="addProd">＋ Produit</button></div>${expandBar('catalog')}<div id="catList">${catListHtml(catQuery)}</div>`;
 }
 
 function viewTickets() {
@@ -379,16 +417,17 @@ function viewTickets() {
      <button class="ic sm" data-act="tkDel" data-id="${t.id}" aria-label="Supprimer le ticket">✕</button></div>`).join('')
     || '<p class="empty">Aucun ticket importé.</p>';
   return `<div class="card"><h2>Ticket de caisse</h2>
-      <p>Prends le ticket en photo, ou choisis un fichier : image ou PDF (eTicket téléchargé depuis l'appli du magasin). Les images sont réduites avant l'envoi à l'IA.</p>
+      <p>Prends un ticket en photo, ou choisis un ou plusieurs fichiers : images ou PDF (eTickets). Tu peux mélanger des tickets de dates et de magasins différents : l'IA les lit tous d'un coup. Les images sont réduites avant l'envoi.</p>
       <input type="file" id="tkCam" accept="image/*" capture="environment" hidden>
-      <input type="file" id="tkFile" hidden>
-      <div class="row"><button class="pri" data-act="tkCam">📷 Photo</button><button class="sec" data-act="tkFile">📄 Fichier (PDF, image)</button></div>
-      ${imp.isPdf ? `<p class="tkpdf">📄 ${esc(imp.fileName)}</p>` : imp.photo ? `<img class="tkimg" src="${imp.photo}" alt="Ticket">` : ''}</div>
+      <input type="file" id="tkFile" multiple hidden>
+      <div class="row"><button class="pri" data-act="tkCam">📷 Photo</button><button class="sec" data-act="tkFile">📄 Fichiers (PDF, images)</button></div>
+      ${imp.photos.map((ph, i) => `<div class="tkph">${ph.url ? `<img src="${ph.url}" alt="Ticket ${i + 1}">` : '<span class="pdf">📄</span>'}<span class="nm">${esc(ph.name)}</span><button class="ic sm" data-act="tkRemove" data-id="${i}" aria-label="Retirer">✕</button></div>`).join('')}
+      ${imp.photos.length > 1 ? `<p class="hint">${imp.photos.length} tickets prêts à analyser ensemble.</p>` : ''}</div>
     <div class="card"><h2>Lire le ticket avec une IA</h2>
-      <p>Ajoute d'abord le ticket ci-dessus. Puis :<br>
-      <b>1.</b> « Analyser avec Claude ou Gemini » copie la consigne et envoie le ticket vers l'appli que tu choisis.
+      <p>Ajoute d'abord les tickets ci-dessus. Puis :<br>
+      <b>1.</b> « Analyser avec Claude ou Gemini » copie la consigne et envoie les tickets vers l'appli que tu choisis.
       <b>2.</b> Dans l'appli, colle la consigne si elle n'apparaît pas, puis touche « copier » sur la réponse.
-      <b>3.</b> Reviens ici : le formulaire se remplit tout seul (sinon, touche « Coller la réponse »). Vérifie, corrige, valide.</p>
+      <b>3.</b> Reviens ici : le formulaire se remplit tout seul (sinon, touche « Coller la réponse »). Vérifie, corrige, valide : les tickets s'enchaînent un par un.</p>
       <button class="pri wide" data-act="tkAnalyze">Analyser avec Claude ou Gemini</button>
       <div class="two"><button class="sec" data-act="tkCopy">Copier la consigne</button><button class="sec" data-act="tkOpenClaude">Ouvrir Claude</button></div>
       <button class="sec wide" data-act="tkOpenGemini">Ouvrir Gemini</button>
@@ -427,13 +466,14 @@ function viewReview() {
         <b class="lt" id="lt${i}">${fmt(l.qty * l.price - l.disc)} €</b>
       </div></div>`;
   }).join('');
-  return `<div class="card"><h2>Vérifier le ticket</h2>
+  const many = imp.total > 1; const nth = imp.total - imp.queue.length + 1;
+  return `<div class="card"><h2>Vérifier le ticket${many ? ` ${nth} / ${imp.total}` : ''}</h2>
       <label class="fl">Magasin<input id="tkStore" list="storeList" value="${esc(R.store)}"></label><datalist id="storeList">${stores}</datalist>
       <div class="two"><label class="fl">Date<input id="tkDate" type="date" value="${esc(R.date)}"></label>
       <label class="fl">Total ticket €<input id="tkTotal" type="number" step="0.01" inputmode="decimal" value="${R.total || ''}"></label></div>
       <p id="tkSum">${sumHtml()}</p>
       <p>${st ? 'Magasin connu.' : 'Nouveau magasin : il sera créé à la validation.'} Les produits déjà classés gardent leur catégorie.</p></div>${rows}
-    <div class="row"><button class="sec" data-act="tkCancel">Annuler</button><button class="pri" data-act="tkValidate">Valider (${R.lines.filter(l => l.on).length})</button></div>`;
+    <div class="row"><button class="sec" data-act="tkCancel">${many ? 'Tout annuler' : 'Annuler'}</button>${many ? '<button class="sec" data-act="tkSkip">Passer</button>' : ''}<button class="pri" data-act="tkValidate">Valider (${R.lines.filter(l => l.on).length})</button></div>`;
 }
 
 function reviewInput(t) {
@@ -485,6 +525,12 @@ function viewData() {
 const ACT = {
   toggle(id) { const i = curList().items.find(x => x.id === id); if (!i) return; i.status = i.status === 'cart' ? 'todo' : 'cart'; save(); render(); },
   unavail(id) { const i = curList().items.find(x => x.id === id); if (!i) return; i.status = i.status === 'unavailable' ? 'todo' : 'unavailable'; save(); render(); },
+  toggleCat(_, t) { const set = openCats[t.dataset.v]; const c = t.dataset.c; if (set.has(c)) set.delete(c); else set.add(c); render(); },
+  expandAll(_, t) {
+    const v = t.dataset.v, set = openCats[v], names = catsOf(v);
+    if (names.every(c => set.has(c))) set.clear(); else names.forEach(c => set.add(c));
+    render();
+  },
   addSug(pid) { addItem(pid, 1); render(); },
 
   newList() {
@@ -576,27 +622,30 @@ const ACT = {
 
   tkCam() { $('#tkCam').click(); },
   tkFile() { $('#tkFile').click(); },
-  async tkCopy() { toast((await copyText(buildPrompt())) ? 'Consigne copiée' : 'Copie impossible'); },
+  async tkCopy() { toast((await copyText(buildPrompt(imp.photos.length))) ? 'Consigne copiée' : 'Copie impossible'); },
   async tkAnalyze() {
-    if (!imp.photoFile) { toast("Ajoute d'abord le ticket (photo ou fichier)"); return; }
-    const copied = await copyText(buildPrompt()); imp.waiting = true;
-    const data = { files: [imp.photoFile], text: buildPrompt(), title: 'Ticket de caisse' };
+    if (!imp.photos.length) { toast("Ajoute d'abord un ticket (photo ou fichier)"); return; }
+    const pr = buildPrompt(imp.photos.length);
+    const copied = await copyText(pr); imp.waiting = true;
+    const data = { files: imp.photos.map(x => x.file), text: pr, title: 'Tickets de caisse' };
     if (navigator.canShare && navigator.canShare(data)) { try { await navigator.share(data); } catch (e) { /* annulé */ } }
-    else toast(copied ? 'Consigne copiée : ouvre Claude ou Gemini et joins le ticket' : 'Partage indisponible');
+    else toast(copied ? 'Consigne copiée : ouvre Claude ou Gemini et joins les tickets' : 'Partage indisponible');
   },
-  async tkOpenClaude() { await copyText(buildPrompt()); imp.waiting = true; toast('Consigne copiée : colle-la et joins le ticket'); window.open('https://claude.ai/new', '_blank'); },
-  async tkOpenGemini() { await copyText(buildPrompt()); imp.waiting = true; toast('Consigne copiée : colle-la et joins le ticket'); window.open('https://gemini.google.com/app', '_blank'); },
+  async tkOpenClaude() { await copyText(buildPrompt(imp.photos.length)); imp.waiting = true; toast('Consigne copiée : colle-la et joins les tickets'); window.open('https://claude.ai/new', '_blank'); },
+  async tkOpenGemini() { await copyText(buildPrompt(imp.photos.length)); imp.waiting = true; toast('Consigne copiée : colle-la et joins les tickets'); window.open('https://gemini.google.com/app', '_blank'); },
   async tkPaste() {
     try { imp.json = await navigator.clipboard.readText(); }
     catch (e) { imp.error = 'Lecture du presse-papiers impossible : colle la réponse à la main ci-dessous.'; render(); return; }
     ACT.tkParse();
   },
   tkParse() {
-    try { imp.review = buildReview(parseTicket(imp.json)); imp.error = ''; imp.waiting = false; }
+    try { startQueue(parseTickets(imp.json)); }
     catch (e) { imp.error = 'Réponse non reconnue : ' + e.message; }
     render(); window.scrollTo(0, 0);
   },
-  tkCancel() { imp.review = null; render(); },
+  tkRemove(i) { const ph = imp.photos[+i]; if (!ph) return; if (ph.url) URL.revokeObjectURL(ph.url); imp.photos.splice(+i, 1); render(); },
+  tkSkip() { imp.queue.shift(); showNext(); if (!imp.review) { resetImp(); tab = 'tickets'; } render(); window.scrollTo(0, 0); },
+  tkCancel() { imp.review = null; imp.queue = []; imp.total = 0; render(); },
   tkValidate() {
     const R = imp.review; if (!R) return;
     const storeName = R.store.trim(); if (!storeName) { toast('Indique le magasin'); return; }
@@ -617,8 +666,11 @@ const ACT = {
     });
     const sum = r2(lines.reduce((s, l) => s + l.lineTotal, 0));
     S.tickets.push({ id: tid, store: st.name, storeId: st.id, date: R.date, total: R.total || sum, lines });
-    save(); resetImp(); tab = 'catalog'; render();
-    toast(`${created} produit${created > 1 ? 's' : ''} créé${created > 1 ? 's' : ''}` + (reclassed ? `, ${reclassed} reclassé${reclassed > 1 ? 's' : ''}` : ''));
+    save();
+    const msg = `${created} produit${created > 1 ? 's' : ''} créé${created > 1 ? 's' : ''}` + (reclassed ? `, ${reclassed} reclassé${reclassed > 1 ? 's' : ''}` : '');
+    imp.queue.shift(); showNext();
+    if (imp.review) { render(); window.scrollTo(0, 0); toast(`Ticket enregistré (${msg}). Suivant : ${imp.total - imp.queue.length + 1} / ${imp.total}`); }
+    else { resetImp(); tab = 'catalog'; render(); toast(msg); }
   },
   tkDel(id) {
     if (!confirm('Supprimer ce ticket et ses achats archivés ? Les produits du catalogue sont conservés.')) return;
@@ -672,7 +724,7 @@ document.addEventListener('click', e => {
   if (e.target.id === 'modal') { closeModal(); return; }
   const t = e.target.closest('[data-act],[data-tab]'); if (!t) return;
   if (t.dataset.tab) { tab = t.dataset.tab; render(); window.scrollTo(0, 0); return; }
-  const fn = ACT[t.dataset.act]; if (fn) fn(t.dataset.id);
+  const fn = ACT[t.dataset.act]; if (fn) fn(t.dataset.id, t);
 });
 
 document.addEventListener('submit', e => {
@@ -718,8 +770,8 @@ document.addEventListener('change', e => {
   if (e.target.id === 'listSel') { S.currentList = e.target.value; save(); render(); }
   else if (e.target.id === 'storeSel') { curList().storeId = e.target.value || null; save(); render(); }
   else if (e.target.id === 'tkCam' || e.target.id === 'tkFile') {
-    const f = e.target.files[0]; if (!f) return;
-    e.target.value = ''; loadPhoto(f);
+    const fs = [...e.target.files]; if (!fs.length) return;
+    e.target.value = ''; loadPhotos(fs);
   } else if (imp.review && e.target.dataset && (e.target.dataset.rf === 'on' || e.target.dataset.rf === 'nom')) {
     reviewInput(e.target); render();
   }

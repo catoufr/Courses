@@ -1,8 +1,11 @@
 # Appli Courses — État des lieux
 
-Mis à jour : 26/11/2026 — appli en v3.0
+Mis à jour : 26/11/2026 — appli en v3.1
 
 ## Terminé
+- **v3.1** :
+  - catalogue et liste : catégories repliables (nombre d'articles affiché), tout replié au chargement, bouton « Tout développer / Tout réduire » au-dessus ; l'état est gardé jusqu'au rechargement de l'appli ; la recherche du catalogue déplie les résultats ; ajouter un article ouvre sa catégorie dans la liste
+  - import de plusieurs tickets à la fois : plusieurs photos ou PDF (dates et enseignes différentes), une seule consigne et un seul envoi à l'IA, qui renvoie `{ "tickets": [...] }` ; vérification puis validation ticket par ticket (« Ticket 2 / 3 », bouton « Passer », « Tout annuler ») ; les produits créés au ticket 1 sont reconnus au ticket 2
 - **v3.0 — catégories communes** : fin des catégories par magasin. 19 catégories thématiques communes à tous les magasins (Fruits et légumes, Charcuterie / traiteur, Crèmerie / frais, Alcools, Bricolage / outillage…), modifiables dans Réglages (renommer, réordonner, supprimer, fusion automatique si le nom existe déjà).
   - import : un seul champ « catégorie » par ligne, pré-rempli par l'IA (les titres du ticket ne servent que d'indice) ; un produit déjà classé garde sa catégorie, un produit resté dans « Autre » est reclassé par l'import ; badge « à classer »
   - liste : choix du magasin conservé, articles rangés par catégorie (l'ordre par rayon viendra avec le plan)
@@ -50,7 +53,7 @@ Mis à jour : 26/11/2026 — appli en v3.0
 - Test de l'appli sur le téléphone (mise en ligne GitHub Pages à faire).
 
 ## À faire
-- Tester la v3.0 avec Gemini sur les vrais tickets et ajuster la consigne selon ce que l'IA renvoie ; tester Leclerc et Carrefour.
+- Tester la v3.1 (plusieurs tickets) avec Gemini sur les vrais tickets et ajuster la consigne selon ce que l'IA renvoie ; tester Leclerc et Carrefour.
 - V1 (suite) : partage en temps réel (Firebase) — créer le projet gratuit, brancher la synchronisation dans save().
 - Mettre en ligne sur GitHub Pages et tester l'installation sur le téléphone.
 - V2 : mode « En courses » dédié.

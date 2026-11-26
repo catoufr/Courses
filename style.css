@@ -97,3 +97,13 @@ header{display:flex;align-items:center;justify-content:space-between}
 
 .hint,.note{color:var(--mute);font-size:.85rem;margin:-4px 2px 10px}
 .note{margin:4px 0 8px}
+
+.cath{all:unset;box-sizing:border-box;display:flex;justify-content:space-between;align-items:center;width:100%;cursor:pointer;font-size:.85rem;text-transform:uppercase;letter-spacing:.04em;color:var(--mute);font-weight:700;margin:6px 0 4px;padding:10px 6px;border-radius:10px}
+.cath:active{background:var(--line)}
+.cath em{font-style:normal;background:var(--line);border-radius:999px;padding:2px 9px;font-size:.8rem}
+.expbar{display:flex;justify-content:flex-end;margin:0 0 4px}
+.expbar .sm{padding:6px 12px;font-size:.85rem}
+.tkph{display:flex;align-items:center;gap:10px;margin:8px 0;padding:6px;border:1px solid var(--line);border-radius:10px}
+.tkph img{width:48px;height:64px;object-fit:cover;border-radius:6px}
+.tkph .pdf{width:48px;text-align:center;font-size:1.6rem}
+.tkph .nm{flex:1;overflow-wrap:anywhere;font-size:.9rem}
