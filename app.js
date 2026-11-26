@@ -2,7 +2,7 @@
 /* Appli Courses — V1 (local, hors ligne). La synchronisation viendra se brancher dans save(). */
 
 const KEY = 'courses.v1';
-const APP_VERSION = '3.2';
+const APP_VERSION = '3.3';
 const DEFAULT_CATS = ['Fruits et légumes', 'Boucherie / volaille', 'Poissonnerie', 'Charcuterie / traiteur', 'Crèmerie / frais',
   'Boulangerie / viennoiserie', 'Épicerie salée', 'Épicerie sucrée', 'Surgelés', 'Boissons sans alcool', 'Alcools', 'Bébé / enfant',
   'Hygiène / beauté', 'Entretien / ménage', 'Maison / bazar', 'Bricolage / outillage', 'Textile', 'Animaux', 'Autre'];
@@ -484,7 +484,7 @@ function viewReview() {
       ${R.nb && R.rawCount > R.nb ? `<p class="err">L'IA a renvoyé ${R.rawCount} lignes, le ticket en indique ${R.nb} : une ligne est probablement en trop ou coupée en deux.</p>` : ''}
       ${R.lines.some(lineWarn) ? '<p class="err">⚠ Des lignes ont un montant différent du ticket : prix ou nom décalé. Compare avec le ticket.</p>' : ''}
       <p>${st ? 'Magasin connu.' : 'Nouveau magasin : il sera créé à la validation.'} Les produits déjà classés gardent leur catégorie.</p></div>${rows}
-    <div class="row"><button class="sec" data-act="tkCancel">${many ? 'Tout annuler' : 'Annuler'}</button>${many ? '<button class="sec" data-act="tkSkip">Passer</button>' : ''}<button class="pri" data-act="tkValidate">Valider (${R.lines.filter(l => l.on).length})</button></div>`;
+    <div class="row"><button class="sec" data-act="tkCancel">${many ? 'Tout annuler' : 'Annuler'}</button>${many ? '<button class="sec" data-act="tkSkip">Ignorer</button>' : ''}<button class="pri" data-act="tkValidate">Valider (${R.lines.filter(l => l.on).length})</button></div>`;
 }
 
 function reviewInput(t) {

@@ -1,6 +1,6 @@
 # Appli Courses — État des lieux
 
-Mis à jour : 26/11/2026 — appli en v3.2
+Mis à jour : 26/11/2026 — appli en v3.3
 
 ## Terminé
 - **v3.2 — contrôles de lecture** (après un test réel : 3 tickets U d'un coup, le 3e avait des noms et prix décalés d'une ligne à partir de « KNACK.ORIG.PRC CSN HER.X4 140G », lu comme 2 produits : 22 lignes au lieu de 21)
@@ -8,7 +8,7 @@ Mis à jour : 26/11/2026 — appli en v3.2
   - l'écran de vérification signale : « ⚠ montant » sur une ligne dont quantité × prix ≠ montant du ticket (se met à jour quand on corrige), et un message si l'IA renvoie plus de lignes que le ticket n'en indique
 - **v3.1** :
   - catalogue et liste : catégories repliables (nombre d'articles affiché), tout replié au chargement, bouton « Tout développer / Tout réduire » au-dessus ; l'état est gardé jusqu'au rechargement de l'appli ; la recherche du catalogue déplie les résultats ; ajouter un article ouvre sa catégorie dans la liste
-  - import de plusieurs tickets à la fois : plusieurs photos ou PDF (dates et enseignes différentes), une seule consigne et un seul envoi à l'IA, qui renvoie `{ "tickets": [...] }` ; vérification puis validation ticket par ticket (« Ticket 2 / 3 », bouton « Passer », « Tout annuler ») ; les produits créés au ticket 1 sont reconnus au ticket 2
+  - import de plusieurs tickets à la fois : plusieurs photos ou PDF (dates et enseignes différentes), une seule consigne et un seul envoi à l'IA, qui renvoie `{ "tickets": [...] }` ; vérification puis validation ticket par ticket (« Ticket 2 / 3 », bouton « Ignorer », « Tout annuler ») ; les produits créés au ticket 1 sont reconnus au ticket 2
 - **v3.0 — catégories communes** : fin des catégories par magasin. 19 catégories thématiques communes à tous les magasins (Fruits et légumes, Charcuterie / traiteur, Crèmerie / frais, Alcools, Bricolage / outillage…), modifiables dans Réglages (renommer, réordonner, supprimer, fusion automatique si le nom existe déjà).
   - import : un seul champ « catégorie » par ligne, pré-rempli par l'IA (les titres du ticket ne servent que d'indice) ; un produit déjà classé garde sa catégorie, un produit resté dans « Autre » est reclassé par l'import ; badge « à classer »
   - liste : choix du magasin conservé, articles rangés par catégorie (l'ordre par rayon viendra avec le plan)
