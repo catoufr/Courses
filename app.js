@@ -2,7 +2,7 @@
 /* Appli Courses — V1 (local, hors ligne). La synchronisation viendra se brancher dans save(). */
 
 const KEY = 'courses.v1';
-const APP_VERSION = '3.4';
+const APP_VERSION = '3.5';
 const DEFAULT_CATS = ['Fruits et légumes', 'Boucherie / volaille', 'Poissonnerie', 'Charcuterie / traiteur', 'Crèmerie / frais',
   'Boulangerie / viennoiserie', 'Épicerie salée', 'Épicerie sucrée', 'Surgelés', 'Boissons sans alcool', 'Alcools', 'Bébé / enfant',
   'Hygiène / beauté', 'Entretien / ménage', 'Maison / bazar', 'Bricolage / outillage', 'Textile', 'Animaux', 'Autre'];
@@ -139,9 +139,12 @@ function suggestions(sid) {
 
 /* ---------- UI utilitaires ---------- */
 let toastTimer;
-function toast(msg) {
-  const t = $('#toast'); t.textContent = msg; t.hidden = false;
-  clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, 2200);
+let toastUndo = null;
+function toast(msg, undo) {
+  const t = $('#toast'); toastUndo = undo || null;
+  t.textContent = undo ? msg + ' · Annuler' : msg; t.hidden = false;
+  if (undo) t.dataset.act = 'undoToast'; else delete t.dataset.act;
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; toastUndo = null; }, undo ? 5000 : 2200);
 }
 function modal(html) { const m = $('#modal'); m.innerHTML = `<div class="sheet">${html}</div>`; m.hidden = false; }
 function closeModal() { const m = $('#modal'); m.hidden = true; m.innerHTML = ''; }
@@ -358,12 +361,14 @@ function expandBar(view) {
 function itemRow(i) {
   const p = prodById(i.productId);
   const u = p && p.unit ? ' ' + esc(p.unit) : '';
-  const sub = '× ' + i.qty + u + (i.note ? ' · ' + esc(i.note) : '') + (i.status === 'unavailable' ? ' · indisponible' : '');
+  const sub = (u ? u.trim() : '') + (i.note ? (u ? ' · ' : '') + esc(i.note) : '') + (i.status === 'unavailable' ? (u || i.note ? ' · ' : '') + 'indisponible' : '') || '&nbsp;';
   const mark = i.status === 'cart' ? '✔' : i.status === 'unavailable' ? '✖' : '';
   return `<div class="item ${i.status}">
     <button class="chk" data-act="toggle" data-id="${i.id}" aria-label="Dans le caddie">${mark}</button>
     <div class="txt" data-act="edit" data-id="${i.id}"><b>${esc(p ? p.name : '?')}</b><span>${sub}</span></div>
+    <div class="qty"><button class="ic sm" data-act="qtyDown" data-id="${i.id}" aria-label="Moins">−</button><b>${i.qty}</b><button class="ic sm" data-act="qtyUp" data-id="${i.id}" aria-label="Plus">＋</button></div>
     <button class="ic sm" data-act="unavail" data-id="${i.id}" title="Indisponible" aria-label="Indisponible">⊘</button>
+    <button class="ic sm" data-act="rmItem" data-id="${i.id}" title="Retirer" aria-label="Retirer de la liste">🗑</button>
   </div>`;
 }
 
@@ -496,7 +501,8 @@ function viewReview() {
       </div></div>`;
   }).join('');
   const many = imp.total > 1; const nth = imp.total - imp.queue.length + 1;
-  return `<div class="card"><h2>Vérifier le ticket${many ? ` ${nth} / ${imp.total}` : ''}</h2>
+  const btns = `<div class="row"><button class="sec" data-act="tkCancel">${many ? 'Tout annuler' : 'Annuler'}</button>${many ? '<button class="sec" data-act="tkSkip">Ignorer</button>' : ''}<button class="pri" data-act="tkValidate">Valider (${R.lines.filter(l => l.on).length})</button></div>`;
+  return `<div class="toprow">${btns}</div><div class="card"><h2>Vérifier le ticket${many ? ` ${nth} / ${imp.total}` : ''}</h2>
       <label class="fl">Magasin<input id="tkStore" list="storeList" value="${esc(R.store)}"></label><datalist id="storeList">${stores}</datalist>
       <div class="two"><label class="fl">Date<input id="tkDate" type="date" value="${esc(R.date)}"></label>
       <label class="fl">Total ticket €<input id="tkTotal" type="number" step="0.01" inputmode="decimal" value="${R.total || ''}"></label></div>
@@ -504,7 +510,7 @@ function viewReview() {
       ${R.nb && R.rawCount > R.nb ? `<p class="err">L'IA a renvoyé ${R.rawCount} lignes, le ticket en indique ${R.nb} : une ligne est probablement en trop ou coupée en deux.</p>` : ''}
       ${R.lines.some(lineWarn) ? '<p class="err">⚠ Des lignes ont un montant différent du ticket : prix ou nom décalé. Compare avec le ticket.</p>' : ''}
       <p>${st ? 'Magasin connu.' : 'Nouveau magasin : il sera créé à la validation.'} Les produits déjà classés gardent leur catégorie.</p></div>${rows}
-    <div class="row"><button class="sec" data-act="tkCancel">${many ? 'Tout annuler' : 'Annuler'}</button>${many ? '<button class="sec" data-act="tkSkip">Ignorer</button>' : ''}<button class="pri" data-act="tkValidate">Valider (${R.lines.filter(l => l.on).length})</button></div>`;
+    ${btns}`;
 }
 
 function reviewInput(t) {
@@ -557,6 +563,14 @@ function viewData() {
 const ACT = {
   toggle(id) { const i = curList().items.find(x => x.id === id); if (!i) return; i.status = i.status === 'cart' ? 'todo' : 'cart'; save(); render(); },
   unavail(id) { const i = curList().items.find(x => x.id === id); if (!i) return; i.status = i.status === 'unavailable' ? 'todo' : 'unavailable'; save(); render(); },
+  qtyUp(id) { const i = curList().items.find(x => x.id === id); if (!i) return; i.qty++; save(); render(); },
+  qtyDown(id) { const i = curList().items.find(x => x.id === id); if (!i || i.qty <= 1) return; i.qty--; save(); render(); },
+  rmItem(id) {
+    const L = curList(); const k = L.items.findIndex(x => x.id === id); if (k < 0) return;
+    const [it] = L.items.splice(k, 1); save(); render();
+    toast('Article retiré', () => { L.items.splice(Math.min(k, L.items.length), 0, it); save(); render(); });
+  },
+  undoToast() { const f = toastUndo; toastUndo = null; $('#toast').hidden = true; if (f) f(); },
   toggleSugg() { suggOpen = !suggOpen; render(); },
   toggleCat(_, t) { const set = openCats[t.dataset.v]; const c = t.dataset.c; if (set.has(c)) set.delete(c); else set.add(c); render(); },
   expandAll(_, t) {

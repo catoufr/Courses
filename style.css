@@ -110,3 +110,10 @@ header{display:flex;align-items:center;justify-content:space-between}
 
 .badge.bad{background:var(--danger);color:#fff}
 .badge[hidden]{display:none}
+
+.qty{display:flex;align-items:center;flex:none}
+.qty b{min-width:1.4em;text-align:center;font-size:1rem}
+.item .ic.sm{width:34px;height:40px;flex:none}
+.item .qty .ic.sm{width:32px;font-size:1.3rem;color:var(--pri)}
+.item{gap:4px}
+.toprow .row{margin:0 0 12px}

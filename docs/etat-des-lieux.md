@@ -1,8 +1,9 @@
 # Appli Courses — État des lieux
 
-Mis à jour : 26/11/2026 — appli en v3.4
+Mis à jour : 26/11/2026 — appli en v3.5
 
 ## Terminé
+- **v3.5** : sur chaque article de la liste, boutons − / + pour la quantité (jamais sous 1), 🗑 pour retirer (avec « Annuler » pendant 5 s) ; à l'import, boutons Valider / Annuler aussi en haut de l'écran de vérification. Import de 9 tickets Intermarché testé par l'utilisateur : ok.
 - **v3.4 — par enseigne** :
   - suggestions calculées avec les achats du magasin choisi dans la liste (sans magasin : tous les achats) ; bloc « Suggestions » replié au chargement, regroupé par catégorie repliable, avec « Tout développer »
   - saisie d'un article : la proposition du catalogue est filtrée par ce que tu tapes (liste du navigateur) et par le magasin choisi (produits achetés dans ce magasin + produits jamais achetés avec un magasin connu) ; sans magasin, tout le catalogue
