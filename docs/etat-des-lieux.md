@@ -1,8 +1,11 @@
 # Appli Courses — État des lieux
 
-Mis à jour : 26/11/2026 — appli en v3.1
+Mis à jour : 26/11/2026 — appli en v3.2
 
 ## Terminé
+- **v3.2 — contrôles de lecture** (après un test réel : 3 tickets U d'un coup, le 3e avait des noms et prix décalés d'une ligne à partir de « KNACK.ORIG.PRC CSN HER.X4 140G », lu comme 2 produits : 22 lignes au lieu de 21)
+  - la consigne demande en plus `montant_ligne` (montant imprimé à droite) et `nb_lignes` (« Nombre de lignes d'article »), précise qu'un libellé peut avoir plusieurs morceaux, et impose un auto-contrôle avant réponse (nombre de lignes, quantité × prix = montant, somme = total)
+  - l'écran de vérification signale : « ⚠ montant » sur une ligne dont quantité × prix ≠ montant du ticket (se met à jour quand on corrige), et un message si l'IA renvoie plus de lignes que le ticket n'en indique
 - **v3.1** :
   - catalogue et liste : catégories repliables (nombre d'articles affiché), tout replié au chargement, bouton « Tout développer / Tout réduire » au-dessus ; l'état est gardé jusqu'au rechargement de l'appli ; la recherche du catalogue déplie les résultats ; ajouter un article ouvre sa catégorie dans la liste
   - import de plusieurs tickets à la fois : plusieurs photos ou PDF (dates et enseignes différentes), une seule consigne et un seul envoi à l'IA, qui renvoie `{ "tickets": [...] }` ; vérification puis validation ticket par ticket (« Ticket 2 / 3 », bouton « Passer », « Tout annuler ») ; les produits créés au ticket 1 sont reconnus au ticket 2
@@ -61,6 +64,7 @@ Mis à jour : 26/11/2026 — appli en v3.1
 - V4 : plan du magasin.
 
 ## Limites connues
+- La lecture dépend de l'IA : plusieurs tickets denses d'un coup augmentent le risque de décalage (préférer 1 à 2 tickets U, mode Pro/Réflexion de Gemini). Un décalage où prix et montant sont décalés ensemble n'est détecté que par l'écart de total ou le nombre de lignes.
 - La classification dépend de l'IA : en cas de doute elle choisit « Autre » (à corriger dans la table de vérification).
 - Les données sont dans le navigateur de chaque téléphone : sans la synchronisation, les listes ne sont pas partagées.
 - Les images de tickets ne sont pas conservées : la photo sert seulement à l'envoi à l'IA (archivage prévu ensuite).

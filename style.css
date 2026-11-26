@@ -107,3 +107,6 @@ header{display:flex;align-items:center;justify-content:space-between}
 .tkph img{width:48px;height:64px;object-fit:cover;border-radius:6px}
 .tkph .pdf{width:48px;text-align:center;font-size:1.6rem}
 .tkph .nm{flex:1;overflow-wrap:anywhere;font-size:.9rem}
+
+.badge.bad{background:var(--danger);color:#fff}
+.badge[hidden]{display:none}

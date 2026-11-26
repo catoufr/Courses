@@ -2,7 +2,7 @@
 /* Appli Courses — V1 (local, hors ligne). La synchronisation viendra se brancher dans save(). */
 
 const KEY = 'courses.v1';
-const APP_VERSION = '3.1';
+const APP_VERSION = '3.2';
 const DEFAULT_CATS = ['Fruits et légumes', 'Boucherie / volaille', 'Poissonnerie', 'Charcuterie / traiteur', 'Crèmerie / frais',
   'Boulangerie / viennoiserie', 'Épicerie salée', 'Épicerie sucrée', 'Surgelés', 'Boissons sans alcool', 'Alcools', 'Bébé / enfant',
   'Hygiène / beauté', 'Entretien / ménage', 'Maison / bazar', 'Bricolage / outillage', 'Textile', 'Animaux', 'Autre'];
@@ -195,6 +195,7 @@ function buildPrompt(n) {
   "magasin_imprime": "nom imprimé en texte en haut du ticket",
   "date": "AAAA-MM-JJ",
   "total": 0.00,
+  "nb_lignes": 0,
   "lignes": [
     {
       "designation": "libellé exact imprimé sur le ticket",
@@ -202,6 +203,7 @@ function buildPrompt(n) {
       "quantite": 1,
       "unite": "",
       "prix_unitaire": 0.00,
+      "montant_ligne": 0.00,
       "remise": 0.00,
       "categorie": "une catégorie de la liste ci-dessous"
     }
@@ -217,7 +219,10 @@ Règles :
 - "prix_unitaire" : le montant imprimé à droite d'une ligne est le TOTAL de la ligne. Donne le prix d'UNE unité TTC (ex. « 2 x 1,19 » → 1,19 ; au poids : le prix au kilo, ex. « 0,158 kg x 17,49 €/kg » → quantité 0,158 et prix 17,49), avant remise, avec un point décimal.
 - "remise" : réduction liée à ce produit, en nombre positif (0 s'il n'y en a pas). Les remises sont souvent imprimées sur des lignes séparées, parfois à la fin du ticket (ex. « 2EME A -50% MARQUE ») : rattache-les au produit concerné.
 - "categorie" : choisis exactement UNE valeur parmi cette liste : ${S.categories.join(' | ')}. Classe chaque produit selon sa nature (ex. « Mousse de foie » → Charcuterie / traiteur). Les titres imprimés sur certains tickets (rayons, familles de produits) peuvent t'aider à choisir, mais ne les recopie pas. En cas de vrai doute, choisis Autre.
+- "montant_ligne" : le montant imprimé à droite de la ligne du produit, avant remise (c'est quantité × prix unitaire). Chaque produit a UN libellé, UN montant à droite sur la même ligne et, juste dessous, le détail « N x prix EUR ». Ne décale jamais un montant vers le produit voisin. Un libellé peut contenir plusieurs morceaux abrégés (ex. « KNACK.ORIG.PRC CSN HER.X4 140G » est UN seul produit). Les titres seuls sur une ligne (ex. « FROMAGE LS », « SURGELE SALE ») ne sont pas des produits.
+- "nb_lignes" : le nombre indiqué sur le ticket après « Nombre de lignes d'article » (null s'il n'est pas imprimé).
 - "total" : le total TTC du ticket après remises (ex. « TOTAL », « MONTANT DU », « TOTAL À PAYER »). Ce n'est ni le montant d'un seul moyen de paiement (CB, titres-restaurant, espèces) ni le nombre d'articles.
+- Contrôle avant de répondre, pour chaque ticket : (1) le nombre de lignes lues (avant tout regroupement de doublons) est égal à "nb_lignes" ; (2) pour chaque ligne, quantite × prix_unitaire = montant_ligne ; (3) la somme des montant_ligne moins les remises est égale à "total". Si un contrôle échoue, relis le ticket ligne par ligne et corrige avant de répondre.
 - Si une information est illisible, mets null plutôt que d'inventer.`;
 }
 
@@ -253,17 +258,19 @@ function buildReview(d, fd) {
     return {
       on: true, label, nom: p ? p.name : nom, cat,
       qty: num(l.quantite) || 1, unit: String(l.unite || '').trim(), price: num(l.prix_unitaire), disc: Math.abs(num(l.remise)),
+      amt: l.montant_ligne == null || l.montant_ligne === '' ? null : num(l.montant_ligne),
     };
   });
   // Un même produit imprimé sur plusieurs lignes est regroupé (quantités et remises additionnées).
   const lines = [], idx = {};
   raw.forEach(l => {
     const k = norm(l.label || l.nom) + '|' + l.price + '|' + norm(l.unit);
-    if (idx[k] != null) { const m = lines[idx[k]]; m.qty = Math.round((m.qty + l.qty) * 1000) / 1000; m.disc = r2(m.disc + l.disc); if (m.cat === 'Autre' && l.cat !== 'Autre') m.cat = l.cat; }
+    if (idx[k] != null) { const m = lines[idx[k]]; m.qty = Math.round((m.qty + l.qty) * 1000) / 1000; m.disc = r2(m.disc + l.disc); if (m.amt != null && l.amt != null) m.amt = r2(m.amt + l.amt); else m.amt = null; if (m.cat === 'Autre' && l.cat !== 'Autre') m.cat = l.cat; }
     else { idx[k] = lines.length; lines.push(l); }
   });
   const date = parseDate(d.date) || fd || today();
-  return { store, printed, date, total: num(d.total), lines };
+  const nb = d.nb_lignes == null ? 0 : Math.round(num(d.nb_lignes));
+  return { store, printed, date, total: num(d.total), lines, nb, rawCount: raw.length };
 }
 
 function shrinkImage(file, max = 2200) {
@@ -439,6 +446,8 @@ function viewTickets() {
     <div class="card"><h2>Tickets importés</h2>${tl}</div>`;
 }
 
+// Ligne suspecte : quantité × prix ne donne pas le montant imprimé sur le ticket (décalage de lecture de l'IA).
+const lineWarn = l => l.amt != null && Math.abs(l.qty * l.price - l.amt) > 0.03;
 function reviewTotals() {
   const sum = r2(imp.review.lines.filter(l => l.on).reduce((s, l) => s + (l.qty * l.price - l.disc), 0));
   return { sum, diff: r2(sum - (imp.review.total || 0)) };
@@ -456,7 +465,7 @@ function viewReview() {
     const p = prodByNorm(l.nom);
     const cats = (S.categories.includes(l.cat) ? S.categories : [...S.categories, l.cat]).map(c => `<option ${c === l.cat ? 'selected' : ''}>${esc(c)}</option>`).join('');
     return `<div class="rl ${l.on ? '' : 'off'}">
-      <label class="rhead"><input type="checkbox" data-rf="on" data-i="${i}" ${l.on ? 'checked' : ''}><span class="lab">${esc(l.label)}</span>${l.cat === 'Autre' ? '<span class="badge prop">à classer</span>' : ''}<span class="badge ${p ? 'ok' : 'new'}">${p ? 'existe' : 'nouveau'}</span></label>
+      <label class="rhead"><input type="checkbox" data-rf="on" data-i="${i}" ${l.on ? 'checked' : ''}><span class="lab">${esc(l.label)}</span><span class="badge bad" id="lw${i}" ${lineWarn(l) ? '' : 'hidden'} title="quantité × prix ≠ montant du ticket">⚠ montant</span>${l.cat === 'Autre' ? '<span class="badge prop">à classer</span>' : ''}<span class="badge ${p ? 'ok' : 'new'}">${p ? 'existe' : 'nouveau'}</span></label>
       <div class="rgrid">
         <input class="full" data-rf="nom" data-i="${i}" value="${esc(l.nom)}" placeholder="Nom du produit">
         <select class="full" data-rf="cat" data-i="${i}" aria-label="Catégorie">${cats}</select>
@@ -472,6 +481,8 @@ function viewReview() {
       <div class="two"><label class="fl">Date<input id="tkDate" type="date" value="${esc(R.date)}"></label>
       <label class="fl">Total ticket €<input id="tkTotal" type="number" step="0.01" inputmode="decimal" value="${R.total || ''}"></label></div>
       <p id="tkSum">${sumHtml()}</p>
+      ${R.nb && R.rawCount > R.nb ? `<p class="err">L'IA a renvoyé ${R.rawCount} lignes, le ticket en indique ${R.nb} : une ligne est probablement en trop ou coupée en deux.</p>` : ''}
+      ${R.lines.some(lineWarn) ? '<p class="err">⚠ Des lignes ont un montant différent du ticket : prix ou nom décalé. Compare avec le ticket.</p>' : ''}
       <p>${st ? 'Magasin connu.' : 'Nouveau magasin : il sera créé à la validation.'} Les produits déjà classés gardent leur catégorie.</p></div>${rows}
     <div class="row"><button class="sec" data-act="tkCancel">${many ? 'Tout annuler' : 'Annuler'}</button>${many ? '<button class="sec" data-act="tkSkip">Passer</button>' : ''}<button class="pri" data-act="tkValidate">Valider (${R.lines.filter(l => l.on).length})</button></div>`;
 }
@@ -486,6 +497,7 @@ function reviewInput(t) {
     if (f === 'on') l.on = t.checked; else if (f === 'nom' || f === 'cat') l[f] = t.value; else l[f] = num(t.value);
     if (f === 'nom') { const p2 = prodByNorm(t.value); if (p2 && p2.category && p2.category !== 'Autre') l.cat = p2.category; }
     const lt = $('#lt' + i); if (lt) lt.textContent = fmt(l.qty * l.price - l.disc) + ' €';
+    const lw = $('#lw' + i); if (lw) lw.hidden = !lineWarn(l);
   }
   const s = $('#tkSum'); if (s) s.innerHTML = sumHtml();
 }
