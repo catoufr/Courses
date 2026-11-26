@@ -2,7 +2,7 @@
 /* Appli Courses — V1 (local, hors ligne). La synchronisation viendra se brancher dans save(). */
 
 const KEY = 'courses.v1';
-const APP_VERSION = '3.3';
+const APP_VERSION = '3.4';
 const DEFAULT_CATS = ['Fruits et légumes', 'Boucherie / volaille', 'Poissonnerie', 'Charcuterie / traiteur', 'Crèmerie / frais',
   'Boulangerie / viennoiserie', 'Épicerie salée', 'Épicerie sucrée', 'Surgelés', 'Boissons sans alcool', 'Alcools', 'Bébé / enfant',
   'Hygiène / beauté', 'Entretien / ménage', 'Maison / bazar', 'Bricolage / outillage', 'Textile', 'Animaux', 'Autre'];
@@ -97,6 +97,8 @@ function load() {
 let S = load();
 let tab = 'lists';
 let catQuery = '';
+let catStoreF = '';   // filtre « enseigne » du catalogue (jusqu'au rechargement)
+let suggOpen = false; // bloc Suggestions replié au chargement
 let stEdit = null;
 
 function save() {
@@ -125,14 +127,14 @@ function addItem(pid, qty) {
   save();
 }
 
-function suggestions() {
+function suggestions(sid) {
   const on = new Set(curList().items.map(i => i.productId));
   const m = {};
-  S.history.forEach(h => { const e = (m[h.productId] = m[h.productId] || { n: 0, last: 0 }); e.n++; e.last = Math.max(e.last, h.date); });
+  S.history.filter(h => !sid || h.storeId === sid).forEach(h => { const e = (m[h.productId] = m[h.productId] || { n: 0, last: 0 }); e.n++; e.last = Math.max(e.last, h.date); });
   return Object.entries(m)
     .filter(([id, v]) => v.n >= 2 && !on.has(id) && prodById(id))
     .sort((a, b) => b[1].n - a[1].n || b[1].last - a[1].last)
-    .slice(0, 12).map(([id, v]) => ({ id, n: v.n }));
+    .slice(0, 80).map(([id, v]) => ({ id, n: v.n }));
 }
 
 /* ---------- UI utilitaires ---------- */
@@ -157,9 +159,15 @@ function matchCat(r) {
   const k = norm(r); if (!k) return 'Autre';
   return S.categories.find(c => norm(c) === k) || S.categories.find(c => norm(c).includes(k) || k.includes(norm(c))) || guessCategory(r, S.categories) || 'Autre';
 }
-function lastPrices() {
+// Magasins où chaque produit a été acheté (tickets importés et courses terminées avec un magasin choisi).
+function storeIndex() {
+  const m = {};
+  S.history.forEach(h => { if (h.storeId) (m[h.productId] = m[h.productId] || new Set()).add(h.storeId); });
+  return m;
+}
+function lastPrices(sid) {
   const out = {};
-  S.tickets.slice().sort((a, b) => a.date.localeCompare(b.date)).forEach(t => t.lines.forEach(l => { out[l.productId] = { price: l.unitPrice, store: t.store }; }));
+  S.tickets.filter(t => !sid || t.storeId === sid).sort((a, b) => a.date.localeCompare(b.date)).forEach(t => t.lines.forEach(l => { out[l.productId] = { price: l.unitPrice, store: t.store }; }));
   return out;
 }
 async function copyText(t) {
@@ -329,7 +337,7 @@ function render() {
 }
 
 // Catégories repliées au chargement ; l'état (ouvert/fermé) dure jusqu'au rechargement de l'appli.
-const openCats = { lists: new Set(), catalog: new Set() };
+const openCats = { lists: new Set(), catalog: new Set(), sugg: new Set() };
 function catSection(view, c, count, body, force) {
   const open = force || openCats[view].has(c);
   return `<section><button class="cath" data-act="toggleCat" data-v="${view}" data-c="${esc(c)}" aria-expanded="${open}"><span>${open ? '▾' : '▸'} ${esc(c)}</span><em>${count}</em></button>${open ? body : ''}</section>`;
@@ -337,7 +345,8 @@ function catSection(view, c, count, body, force) {
 function catsOf(view) {
   const set = new Set();
   if (view === 'lists') curList().items.forEach(i => { const p = prodById(i.productId); set.add(p ? groupOf(p) : 'Autre'); });
-  else S.products.forEach(p => set.add(groupOf(p)));
+  else if (view === 'sugg') suggestions(activeStore()).forEach(x => set.add(groupOf(prodById(x.id))));
+  else { const idx = storeIndex(); S.products.forEach(p => { if (!catStoreF || (idx[p.id] && idx[p.id].has(catStoreF))) set.add(groupOf(p)); }); }
   return [...set];
 }
 function expandBar(view) {
@@ -361,7 +370,9 @@ function itemRow(i) {
 function viewLists() {
   const L = curList();
   const opts = S.lists.map(l => `<option value="${l.id}" ${l.id === L.id ? 'selected' : ''}>${esc(l.name)}</option>`).join('');
-  const dl = S.products.map(p => `<option value="${esc(p.name)}">`).join('');
+  const idx0 = storeIndex(), sid0 = activeStore();
+  // Avec un magasin choisi : produits qu'on y a achetés + produits jamais achetés avec un magasin connu. Sans magasin : tout le catalogue.
+  const dl = S.products.filter(p => !sid0 || !idx0[p.id] || idx0[p.id].has(sid0)).map(p => `<option value="${esc(p.name)}">`).join('');
   const total = L.items.length;
   const done = L.items.filter(i => i.status === 'cart').length;
   const sid = activeStore();
@@ -379,10 +390,16 @@ function viewLists() {
       <button class="pri">Ajouter</button>
     </form>`;
 
-  const sug = suggestions();
+  const sug = suggestions(sid);
   if (sug.length) {
-    h += `<div class="card"><h2>Suggestions</h2><p>Tes achats habituels, pas encore sur la liste :</p><div class="chips">` +
-      sug.map(s => `<button class="chip" data-act="addSug" data-id="${s.id}">+ ${esc(prodById(s.id).name)}</button>`).join('') + `</div></div>`;
+    const sg = {}; sug.forEach(x => { const c = groupOf(prodById(x.id)); (sg[c] = sg[c] || []).push(x); });
+    h += `<div class="card"><button class="cath" data-act="toggleSugg" aria-expanded="${suggOpen}"><span>${suggOpen ? '▾' : '▸'} Suggestions${sid ? ' · ' + esc(storeById(sid).name) : ''}</span><em>${sug.length}</em></button>`;
+    if (suggOpen) {
+      h += `<p>Tes achats habituels${sid ? ' dans ce magasin' : ''}, pas encore sur la liste :</p>` + expandBar('sugg') +
+        orderedCats(Object.keys(sg)).filter(c => sg[c]).map(c => catSection('sugg', c, sg[c].length,
+          `<div class="chips">` + sg[c].map(x => `<button class="chip" data-act="addSug" data-id="${x.id}">+ ${esc(prodById(x.id).name)}</button>`).join('') + `</div>`)).join('');
+    }
+    h += `</div>`;
   }
 
   if (total) h += `<div class="progress">${done} / ${total} dans le caddie</div>`;
@@ -403,18 +420,21 @@ function viewLists() {
 
 function catListHtml(q) {
   q = q.toLowerCase();
-  const ps = S.products.filter(p => p.name.toLowerCase().includes(q)).sort((a, b) => a.name.localeCompare(b.name, 'fr'));
-  if (!ps.length) return `<p class="empty">${S.products.length ? 'Aucun résultat.' : 'Catalogue vide. Il se remplit tout seul quand tu ajoutes des articles aux listes.'}</p>`;
+  const idx = storeIndex();
+  const ps = S.products.filter(p => p.name.toLowerCase().includes(q) && (!catStoreF || (idx[p.id] && idx[p.id].has(catStoreF)))).sort((a, b) => a.name.localeCompare(b.name, 'fr'));
+  if (!ps.length) return `<p class="empty">${catStoreF ? 'Aucun produit acheté dans cette enseigne.' : S.products.length ? 'Aucun résultat.' : 'Catalogue vide. Il se remplit tout seul quand tu ajoutes des articles aux listes.'}</p>`;
   const g = {}; ps.forEach(p => { const k = groupOf(p); (g[k] = g[k] || []).push(p); });
-  const lp = lastPrices();
+  const lp = lastPrices(catStoreF);
   return orderedCats(Object.keys(g)).filter(c => g[c]).map(c => catSection('catalog', c, g[c].length,
     g[c].map(p =>
       `<div class="item"><div class="txt" data-act="editProd" data-id="${p.id}"><b>${esc(p.name)}</b><span>${p.unit ? esc(p.unit) : 'sans unité'}${lp[p.id] ? ' · ' + fmt(lp[p.id].price) + ' € · ' + esc(lp[p.id].store) : ''}</span></div>
        <button class="ic sm" data-act="prodToList" data-id="${p.id}" title="Ajouter à la liste" aria-label="Ajouter à la liste">＋</button></div>`).join(''), !!q)).join('');
 }
 function viewCatalog() {
+  const so = '<option value="">🏬 Toutes les enseignes</option>' + S.stores.map(x => `<option value="${x.id}" ${x.id === catStoreF ? 'selected' : ''}>🏬 ${esc(x.name)}</option>`).join('');
   return `<div class="bar"><input id="catSearch" type="search" placeholder="Rechercher un produit…" value="${esc(catQuery)}">
-    <button class="pri" data-act="addProd">＋ Produit</button></div>${expandBar('catalog')}<div id="catList">${catListHtml(catQuery)}</div>`;
+    <button class="pri" data-act="addProd">＋ Produit</button></div>
+    <div class="bar"><select id="catStoreSel" aria-label="Enseigne">${so}</select></div>${expandBar('catalog')}<div id="catList">${catListHtml(catQuery)}</div>`;
 }
 
 function viewTickets() {
@@ -537,6 +557,7 @@ function viewData() {
 const ACT = {
   toggle(id) { const i = curList().items.find(x => x.id === id); if (!i) return; i.status = i.status === 'cart' ? 'todo' : 'cart'; save(); render(); },
   unavail(id) { const i = curList().items.find(x => x.id === id); if (!i) return; i.status = i.status === 'unavailable' ? 'todo' : 'unavailable'; save(); render(); },
+  toggleSugg() { suggOpen = !suggOpen; render(); },
   toggleCat(_, t) { const set = openCats[t.dataset.v]; const c = t.dataset.c; if (set.has(c)) set.delete(c); else set.add(c); render(); },
   expandAll(_, t) {
     const v = t.dataset.v, set = openCats[v], names = catsOf(v);
@@ -780,6 +801,7 @@ document.addEventListener('input', e => {
 
 document.addEventListener('change', e => {
   if (e.target.id === 'listSel') { S.currentList = e.target.value; save(); render(); }
+  else if (e.target.id === 'catStoreSel') { catStoreF = e.target.value; render(); }
   else if (e.target.id === 'storeSel') { curList().storeId = e.target.value || null; save(); render(); }
   else if (e.target.id === 'tkCam' || e.target.id === 'tkFile') {
     const fs = [...e.target.files]; if (!fs.length) return;

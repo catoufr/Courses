@@ -1,8 +1,12 @@
 # Appli Courses — État des lieux
 
-Mis à jour : 26/11/2026 — appli en v3.3
+Mis à jour : 26/11/2026 — appli en v3.4
 
 ## Terminé
+- **v3.4 — par enseigne** :
+  - suggestions calculées avec les achats du magasin choisi dans la liste (sans magasin : tous les achats) ; bloc « Suggestions » replié au chargement, regroupé par catégorie repliable, avec « Tout développer »
+  - saisie d'un article : la proposition du catalogue est filtrée par ce que tu tapes (liste du navigateur) et par le magasin choisi (produits achetés dans ce magasin + produits jamais achetés avec un magasin connu) ; sans magasin, tout le catalogue
+  - catalogue : filtre « enseigne » (toutes / une enseigne) ; avec une enseigne : produits achetés là et dernier prix dans cette enseigne
 - **v3.2 — contrôles de lecture** (après un test réel : 3 tickets U d'un coup, le 3e avait des noms et prix décalés d'une ligne à partir de « KNACK.ORIG.PRC CSN HER.X4 140G », lu comme 2 produits : 22 lignes au lieu de 21)
   - la consigne demande en plus `montant_ligne` (montant imprimé à droite) et `nb_lignes` (« Nombre de lignes d'article »), précise qu'un libellé peut avoir plusieurs morceaux, et impose un auto-contrôle avant réponse (nombre de lignes, quantité × prix = montant, somme = total)
   - l'écran de vérification signale : « ⚠ montant » sur une ligne dont quantité × prix ≠ montant du ticket (se met à jour quand on corrige), et un message si l'IA renvoie plus de lignes que le ticket n'en indique
