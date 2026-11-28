@@ -1,6 +1,6 @@
 # Appli Courses — Cahier des charges
 
-Version 0.5 — 26/11/2026
+Version 0.6 — 28/11/2026
 
 ## 1. Objectif
 
@@ -43,6 +43,11 @@ Usage personnel et familial, gratuit, sans compte obligatoire.
 - Rejoindre le foyer par un code ou un lien, sans création de compte.
 - Fonctionnement hors ligne : les modifications faites sans réseau se synchronisent au retour de la connexion.
 - Export/import JSON conservé comme sauvegarde.
+
+### Garanties (v3.6 ; stockage Drive à venir)
+- Chaque ligne de ticket peut être marquée « sous garantie » (durée en mois, 24 par défaut), à l'import ou après coup.
+- Section « Garanties » : liste des équipements avec date de fin, statut, ticket associé à ouvrir et imprimer.
+- L'image du ticket est conservée ; destination finale : un dossier Drive partagé (sauvegarde), l'appareil servant de cache.
 
 ### Affichage et import multiple (livré en v3.1)
 - Listes et catalogue groupés par catégorie, repliés au chargement, avec « Tout développer » ; l'état reste jusqu'au rechargement.

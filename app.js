@@ -2,7 +2,7 @@
 /* Appli Courses — V1 (local, hors ligne). La synchronisation viendra se brancher dans save(). */
 
 const KEY = 'courses.v1';
-const APP_VERSION = '3.5';
+const APP_VERSION = '3.6';
 const DEFAULT_CATS = ['Fruits et légumes', 'Boucherie / volaille', 'Poissonnerie', 'Charcuterie / traiteur', 'Crèmerie / frais',
   'Boulangerie / viennoiserie', 'Épicerie salée', 'Épicerie sucrée', 'Surgelés', 'Boissons sans alcool', 'Alcools', 'Bébé / enfant',
   'Hygiène / beauté', 'Entretien / ménage', 'Maison / bazar', 'Bricolage / outillage', 'Textile', 'Animaux', 'Autre'];
@@ -98,6 +98,7 @@ let S = load();
 let tab = 'lists';
 let catQuery = '';
 let catStoreF = '';   // filtre « enseigne » du catalogue (jusqu'au rechargement)
+let attachFor = null;
 let suggOpen = false; // bloc Suggestions replié au chargement
 let stEdit = null;
 
@@ -149,6 +150,31 @@ function toast(msg, undo) {
 function modal(html) { const m = $('#modal'); m.innerHTML = `<div class="sheet">${html}</div>`; m.hidden = false; }
 function closeModal() { const m = $('#modal'); m.hidden = true; m.innerHTML = ''; }
 const catSelect = (id, sel) => `<select id="${id}">${S.categories.map(c => `<option ${c === sel ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>`;
+
+/* ---------- Images des tickets (stockées sur l'appareil ; Drive viendra ensuite) ---------- */
+const imgs = (() => {
+  const mem = new Map(); let dbp = null;
+  const db = () => dbp || (dbp = new Promise((res, rej) => {
+    if (typeof indexedDB === 'undefined') return rej(new Error('no idb'));
+    const r = indexedDB.open('courses-img', 1);
+    r.onupgradeneeded = () => r.result.createObjectStore('f');
+    r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+  }));
+  const tx = (mode, fn) => db().then(d => new Promise((res, rej) => { const t = d.transaction('f', mode); const rq = fn(t.objectStore('f')); t.oncomplete = () => res(rq && rq.result); t.onerror = () => rej(t.error); }));
+  return {
+    put: (id, blob) => { mem.set(id, blob); return tx('readwrite', st => st.put(blob, id)).catch(() => { }); },
+    get: id => mem.has(id) ? Promise.resolve(mem.get(id)) : tx('readonly', st => st.get(id)).then(b => b || null).catch(() => null),
+    del: id => { mem.delete(id); return tx('readwrite', st => st.delete(id)).catch(() => { }); },
+  };
+})();
+const frDate = iso => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso || ''); return m ? `${m[3]}/${m[2]}/${m[1]}` : (iso || ''); };
+function warrantyEnd(t, w) { const d = new Date((t.date || today()) + 'T12:00:00'); d.setMonth(d.getMonth() + (w.months || 24)); return d.toISOString().slice(0, 10); }
+// Équipements sous garantie : lignes de tickets cochées 🛡
+function warranties() {
+  const out = [];
+  S.tickets.forEach(t => t.lines.forEach((l, i) => { if (l.warranty) { const p = prodById(l.productId); out.push({ t, i, l, name: p ? p.name : l.label, end: warrantyEnd(t, l.warranty) }); } }));
+  return out.sort((a, b) => a.end.localeCompare(b.end));
+}
 
 /* ---------- Tickets de caisse : outils ---------- */
 const num = v => { if (v == null || v === '') return 0; const n = parseFloat(String(v).replace(',', '.').replace(/[^\d.\-]/g, '')); return isFinite(n) ? n : 0; };
@@ -269,6 +295,7 @@ function buildReview(d, fd) {
     return {
       on: true, label, nom: p ? p.name : nom, cat,
       qty: num(l.quantite) || 1, unit: String(l.unite || '').trim(), price: num(l.prix_unitaire), disc: Math.abs(num(l.remise)),
+      warr: false, wm: 24,
       amt: l.montant_ligne == null || l.montant_ligne === '' ? null : num(l.montant_ligne),
     };
   });
@@ -306,6 +333,12 @@ async function loadPhoto(f) {
   imp.photos.push({ file: out, url: pdf ? null : URL.createObjectURL(out), isPdf: pdf, name: f.name || (pdf ? 'ticket.pdf' : 'ticket.jpg'), fileDate: fileDate(f.name) });
   return true;
 }
+async function attachImage(id, f) {
+  const t = S.tickets.find(x => x.id === id); if (!t) return;
+  const pdf = f.type === 'application/pdf' || /\.pdf$/i.test(f.name || '');
+  if (!pdf && !/^image\//.test(f.type || '')) { toast('Choisis un PDF ou une image'); return; }
+  await imgs.put(id, pdf ? f : await shrinkImage(f)); t.hasImg = true; save(); toast('Ticket joint'); closeModal(); render();
+}
 async function loadPhotos(files) { for (const f of files) await loadPhoto(f); render(); }
 
 // Au retour depuis Claude ou Gemini : si le presse-papiers contient la réponse, on remplit le formulaire.
@@ -327,7 +360,7 @@ let imp = newImp();
 function showNext() { const q = imp.queue[0]; imp.review = q ? buildReview(q.d, q.fd) : null; }
 function startQueue(list) {
   const n = imp.photos.length;
-  imp.queue = list.map((d, i) => ({ d, fd: n === list.length && imp.photos[i] ? imp.photos[i].fileDate : (n === 1 && imp.photos[0] ? imp.photos[0].fileDate : '') }));
+  imp.queue = list.map((d, i) => ({ d, ph: n === list.length ? imp.photos[i] : null, fd: n === list.length && imp.photos[i] ? imp.photos[i].fileDate : '' }));
   imp.total = list.length; imp.error = ''; imp.waiting = false; showNext();
 }
 function resetImp() { imp.photos.forEach(p => { if (p.url) URL.revokeObjectURL(p.url); }); imp = newImp(); }
@@ -336,7 +369,7 @@ function render() {
   const av = $('#appVer'); if (av) av.textContent = 'v' + APP_VERSION;
   document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
   const v = $('#view');
-  v.innerHTML = tab === 'lists' ? viewLists() : tab === 'catalog' ? viewCatalog() : tab === 'tickets' ? viewTickets() : viewData();
+  v.innerHTML = tab === 'lists' ? viewLists() : tab === 'catalog' ? viewCatalog() : tab === 'tickets' ? viewTickets() : tab === 'warranty' ? viewWarranty() : viewData();
 }
 
 // Catégories repliées au chargement ; l'état (ouvert/fermé) dure jusqu'au rechargement de l'appli.
@@ -442,10 +475,25 @@ function viewCatalog() {
     <div class="bar"><select id="catStoreSel" aria-label="Enseigne">${so}</select></div>${expandBar('catalog')}<div id="catList">${catListHtml(catQuery)}</div>`;
 }
 
+function viewWarranty() {
+  const ws = warranties(), now = today();
+  const rows = ws.map(w => {
+    const ok = w.end >= now;
+    const left = ok ? Math.max(0, Math.round((new Date(w.end) - new Date(now)) / 2629800000)) : 0;
+    return `<div class="card wcard ${ok ? '' : 'exp'}"><b>${esc(w.name)}</b>
+      <span>${esc(w.t.store)} · acheté le ${esc(frDate(w.t.date))} · ${fmt(w.l.unitPrice)} €</span>
+      <span class="badge ${ok ? 'ok' : 'bad'}">${ok ? 'Sous garantie jusqu\'au ' + frDate(w.end) + ' (≈ ' + left + ' mois)' : 'Garantie expirée le ' + frDate(w.end)}</span>
+      <div class="row">${w.t.hasImg ? `<button class="sec" data-act="tkView" data-id="${w.t.id}">Ouvrir le ticket</button><button class="sec" data-act="tkPrint" data-id="${w.t.id}">🖨 Imprimer</button>` : `<button class="sec" data-act="tkAttach" data-id="${w.t.id}">📎 Joindre le ticket</button>`}
+        <button class="sec" data-act="tkOpen" data-id="${w.t.id}">Modifier</button></div></div>`;
+  }).join('');
+  return `<div class="card"><h2>Équipements sous garantie</h2>
+    <p>Pour ajouter un équipement : coche « 🛡 Sous garantie » à l'import d'un ticket, ou ouvre un ticket déjà importé (onglet Tickets) et coche la ligne.</p></div>
+    ${rows || '<p class="empty">Aucun équipement pour le moment.</p>'}`;
+}
 function viewTickets() {
   if (imp.review) return viewReview();
   const tl = S.tickets.slice().sort((a, b) => b.date.localeCompare(a.date)).map(t =>
-    `<div class="item"><div class="txt"><b>${esc(t.store)} · ${esc(t.date)}</b><span>${t.lines.length} article${t.lines.length > 1 ? 's' : ''} · ${fmt(t.total)} €</span></div>
+    `<div class="item"><div class="txt" data-act="tkOpen" data-id="${t.id}"><b>${esc(t.store)} · ${esc(frDate(t.date))}</b><span>${t.lines.length} article${t.lines.length > 1 ? 's' : ''} · ${fmt(t.total)} €${t.lines.some(l => l.warranty) ? ' · 🛡 ' + t.lines.filter(l => l.warranty).length : ''}${t.hasImg ? ' · 📎' : ''}</span></div>
      <button class="ic sm" data-act="tkDel" data-id="${t.id}" aria-label="Supprimer le ticket">✕</button></div>`).join('')
     || '<p class="empty">Aucun ticket importé.</p>';
   return `<div class="card"><h2>Ticket de caisse</h2>
@@ -498,6 +546,8 @@ function viewReview() {
         <label>Prix €<input type="number" step="0.01" min="0" inputmode="decimal" data-rf="price" data-i="${i}" value="${l.price}"></label>
         <label>Remise €<input type="number" step="0.01" min="0" inputmode="decimal" data-rf="disc" data-i="${i}" value="${l.disc}"></label>
         <b class="lt" id="lt${i}">${fmt(l.qty * l.price - l.disc)} €</b>
+        <div class="full wr"><label class="wchk"><input type="checkbox" data-rf="warr" data-i="${i}" ${l.warr ? 'checked' : ''}> 🛡 Sous garantie</label>
+          <label class="wm">durée <input type="number" min="1" max="240" inputmode="numeric" data-rf="wm" data-i="${i}" value="${l.wm}"> mois</label></div>
       </div></div>`;
   }).join('');
   const many = imp.total > 1; const nth = imp.total - imp.queue.length + 1;
@@ -520,7 +570,7 @@ function reviewInput(t) {
   else if (t.id === 'tkTotal') R.total = num(t.value);
   else {
     const i = +t.dataset.i, l = R.lines[i], f = t.dataset.rf; if (!l) return;
-    if (f === 'on') l.on = t.checked; else if (f === 'nom' || f === 'cat') l[f] = t.value; else l[f] = num(t.value);
+    if (f === 'on') l.on = t.checked; else if (f === 'warr') l.warr = t.checked; else if (f === 'nom' || f === 'cat') l[f] = t.value; else l[f] = num(t.value);
     if (f === 'nom') { const p2 = prodByNorm(t.value); if (p2 && p2.category && p2.category !== 'Autre') l.cat = p2.category; }
     const lt = $('#lt' + i); if (lt) lt.textContent = fmt(l.qty * l.price - l.disc) + ' €';
     const lw = $('#lw' + i); if (lw) lw.hidden = !lineWarn(l);
@@ -708,20 +758,43 @@ const ACT = {
       if (!p) { p = { id: uid(), name: l.nom.trim(), category: cat, unit: l.unit || '', place: {} }; S.products.push(p); created++; }
       else { if (!p.unit && l.unit) p.unit = l.unit; if (p.category !== cat) { p.category = cat; reclassed++; } }
       mapSet(st.name, l.label, p.id);
-      lines.push({ label: l.label, productId: p.id, qty: l.qty, unitPrice: l.price, discount: l.disc, lineTotal: r2(l.qty * l.price - l.disc) });
+      lines.push({ label: l.label, productId: p.id, qty: l.qty, unitPrice: l.price, discount: l.disc, lineTotal: r2(l.qty * l.price - l.disc), ...(l.warr ? { warranty: { months: Math.max(1, Math.round(l.wm) || 24) } } : {}) });
       S.history.push({ id: uid(), date: dateMs, productId: p.id, name: p.name, qty: l.qty, listName: 'Ticket ' + st.name, ticketId: tid, storeId: st.id });
     });
     const sum = r2(lines.reduce((s, l) => s + l.lineTotal, 0));
-    S.tickets.push({ id: tid, store: st.name, storeId: st.id, date: R.date, total: R.total || sum, lines });
+    const ph = imp.queue[0] && imp.queue[0].ph; const tk = { id: tid, store: st.name, storeId: st.id, date: R.date, total: R.total || sum, lines };
+    if (ph && ph.file) { tk.hasImg = true; imgs.put(tid, ph.file); }
+    S.tickets.push(tk);
     save();
     const msg = `${created} produit${created > 1 ? 's' : ''} créé${created > 1 ? 's' : ''}` + (reclassed ? `, ${reclassed} reclassé${reclassed > 1 ? 's' : ''}` : '');
     imp.queue.shift(); showNext();
     if (imp.review) { render(); window.scrollTo(0, 0); toast(`Ticket enregistré (${msg}). Suivant : ${imp.total - imp.queue.length + 1} / ${imp.total}`); }
     else { resetImp(); tab = 'catalog'; render(); toast(msg); }
   },
+  tkOpen(id) {
+    const t = S.tickets.find(x => x.id === id); if (!t) return;
+    const lines = t.lines.map((l, i) => { const p = prodById(l.productId);
+      return `<div class="wl"><label class="wchk"><input type="checkbox" data-wf="on" data-tk="${t.id}" data-i="${i}" ${l.warranty ? 'checked' : ''}> 🛡</label>
+        <span class="nm">${esc(p ? p.name : l.label)}</span><span>${fmt(l.lineTotal)} €</span>
+        <label class="wm"><input type="number" min="1" max="240" inputmode="numeric" data-wf="m" data-tk="${t.id}" data-i="${i}" value="${l.warranty ? l.warranty.months : 24}"> mois</label></div>`; }).join('');
+    modal(`<h3>${esc(t.store)} · ${esc(frDate(t.date))}</h3><p class="note">Coche les lignes qui sont des équipements sous garantie.</p>
+      <div class="wlist">${lines}</div>
+      <div class="row">${t.hasImg ? `<button class="sec" data-act="tkView" data-id="${t.id}">Ouvrir le ticket</button><button class="sec" data-act="tkPrint" data-id="${t.id}">🖨 Imprimer</button>` : ''}<button class="sec" data-act="tkAttach" data-id="${t.id}">📎 ${t.hasImg ? 'Remplacer' : 'Joindre'} l'image</button></div>
+      <div class="row"><button class="pri" data-act="close">Fermer</button></div>`);
+  },
+  async tkView(id, t, print) {
+    const blob = await imgs.get(id); if (!blob) { toast("Image absente de cet appareil"); return; }
+    const url = URL.createObjectURL(blob);
+    if (print && blob.type !== 'application/pdf') {
+      const w = window.open('', '_blank'); if (!w) { toast('Autorise les fenêtres pour imprimer'); return; }
+      w.document.write('<!doctype html><title>Ticket</title><style>body{margin:0}img{max-width:100%}</style><img src="' + url + '" onload="setTimeout(function(){print()},200)">'); w.document.close();
+    } else if (!window.open(url, '_blank')) location.href = url;
+  },
+  tkPrint(id, t) { return ACT.tkView(id, t, true); },
+  tkAttach(id) { attachFor = id; const el = $('#tkAttachInput'); if (el) el.click(); },
   tkDel(id) {
     if (!confirm('Supprimer ce ticket et ses achats archivés ? Les produits du catalogue sont conservés.')) return;
-    S.tickets = S.tickets.filter(t => t.id !== id); S.history = S.history.filter(h => h.ticketId !== id); save(); render();
+    imgs.del(id); S.tickets = S.tickets.filter(t => t.id !== id); S.history = S.history.filter(h => h.ticketId !== id); save(); render();
   },
 
   storeEdit(id) { if (!storeById(id)) return; stEdit = id; stRefresh(); },
@@ -817,7 +890,13 @@ document.addEventListener('change', e => {
   if (e.target.id === 'listSel') { S.currentList = e.target.value; save(); render(); }
   else if (e.target.id === 'catStoreSel') { catStoreF = e.target.value; render(); }
   else if (e.target.id === 'storeSel') { curList().storeId = e.target.value || null; save(); render(); }
-  else if (e.target.id === 'tkCam' || e.target.id === 'tkFile') {
+  else if (e.target.dataset && e.target.dataset.wf) {
+    const t = S.tickets.find(x => x.id === e.target.dataset.tk), l = t && t.lines[+e.target.dataset.i]; if (!l) return;
+    const row = e.target.closest('.wl'); const on = row.querySelector('[data-wf=on]').checked, m = Math.max(1, Math.round(num(row.querySelector('[data-wf=m]').value)) || 24);
+    if (on) l.warranty = { months: m }; else delete l.warranty; save();
+  } else if (e.target.id === 'tkAttachInput') {
+    const f = e.target.files[0]; e.target.value = ''; if (!f || !attachFor) return; attachImage(attachFor, f);
+  } else if (e.target.id === 'tkCam' || e.target.id === 'tkFile') {
     const fs = [...e.target.files]; if (!fs.length) return;
     e.target.value = ''; loadPhotos(fs);
   } else if (imp.review && e.target.dataset && (e.target.dataset.rf === 'on' || e.target.dataset.rf === 'nom')) {

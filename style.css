@@ -12,7 +12,7 @@ header{position:sticky;top:0;z-index:5;background:var(--pri);color:var(--pri-ink
 header h1{margin:0;font-size:1.15rem}
 main{padding:12px 12px calc(80px + env(safe-area-inset-bottom));max-width:640px;margin:0 auto}
 nav#tabs{position:fixed;bottom:0;left:0;right:0;display:flex;background:var(--card);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom);z-index:5}
-nav#tabs button{flex:1;padding:14px 4px;border:0;background:none;color:var(--mute);font-size:.95rem}
+nav#tabs button{flex:1;padding:14px 2px;border:0;background:none;color:var(--mute);font-size:.82rem}
 nav#tabs button.on{color:var(--pri);font-weight:700;box-shadow:inset 0 3px 0 var(--pri)}
 button,input,select{font:inherit;color:inherit}
 input,select{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px;min-width:0}
@@ -117,3 +117,17 @@ header{display:flex;align-items:center;justify-content:space-between}
 .item .qty .ic.sm{width:32px;font-size:1.3rem;color:var(--pri)}
 .item{gap:4px}
 .toprow .row{margin:0 0 12px}
+
+.wr{display:flex;align-items:center;justify-content:space-between;gap:8px;border-top:1px dashed var(--line);padding-top:6px;margin-top:2px}
+.wchk{display:flex;align-items:center;gap:6px;font-weight:600}
+.wchk input{width:20px;height:20px}
+.wm input{width:4.2em;display:inline-block}
+.wlist{max-height:50vh;overflow:auto}
+.wl{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--line)}
+.wl .nm{flex:1;overflow-wrap:anywhere;font-size:.92rem}
+.wcard{display:flex;flex-direction:column;gap:4px}
+.wcard span{color:var(--mute);font-size:.9rem}
+.wcard .badge{align-self:flex-start}
+.wcard.exp{opacity:.75}
+.rgrid .wr label{display:flex;flex-direction:row;align-items:center;gap:6px;white-space:nowrap}
+.rgrid .wr .wm input{width:4.5em}

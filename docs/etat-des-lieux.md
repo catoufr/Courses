@@ -1,8 +1,14 @@
 # Appli Courses — État des lieux
 
-Mis à jour : 26/11/2026 — appli en v3.5
+Mis à jour : 26/11/2026 — appli en v3.6
 
 ## Terminé
+- **v3.6 — garanties** :
+  - à l'import : case « 🛡 Sous garantie » + durée en mois (24 par défaut) sur chaque ligne
+  - ticket déjà importé : touche-le dans Tickets, coche / décoche les lignes sous garantie et règle la durée
+  - nouvel onglet **Garanties** : équipements triés par fin de garantie (sous garantie / expirée), avec magasin, date, prix
+  - image du ticket : rattachée automatiquement quand il y a autant de photos que de tickets ; sinon « Joindre l'image » (ticket existant) ; « Ouvrir le ticket » et « Imprimer » depuis la fiche
+  - ⚠ les images sont pour l'instant stockées **sur le téléphone** (pas dans l'export JSON ni sur Drive) : le stockage sur le Drive est à faire avec le projet Google (voir À faire)
 - **v3.5** : sur chaque article de la liste, boutons − / + pour la quantité (jamais sous 1), 🗑 pour retirer (avec « Annuler » pendant 5 s) ; à l'import, boutons Valider / Annuler aussi en haut de l'écran de vérification. Import de 9 tickets Intermarché testé par l'utilisateur : ok.
 - **v3.4 — par enseigne** :
   - suggestions calculées avec les achats du magasin choisi dans la liste (sans magasin : tous les achats) ; bloc « Suggestions » replié au chargement, regroupé par catégorie repliable, avec « Tout développer »
@@ -61,6 +67,7 @@ Mis à jour : 26/11/2026 — appli en v3.5
 - Test de l'appli sur le téléphone (mise en ligne GitHub Pages à faire).
 
 ## À faire
+- Drive : envoyer l'image du ticket dans un dossier Drive partagé (même projet Google que Firebase : créer un identifiant OAuth), ouvrir / imprimer depuis le Drive, sauvegarder aussi le catalogue.
 - Tester la v3.1 (plusieurs tickets) avec Gemini sur les vrais tickets et ajuster la consigne selon ce que l'IA renvoie ; tester Leclerc et Carrefour.
 - V1 (suite) : partage en temps réel (Firebase) — créer le projet gratuit, brancher la synchronisation dans save().
 - Mettre en ligne sur GitHub Pages et tester l'installation sur le téléphone.
